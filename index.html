@@ -293,7 +293,7 @@
         th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
 
         th {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -322,6 +322,11 @@
         .change-positive { color: var(--positive); }
         .change-negative { color: var(--negative); }
         .tonnes { font-family: 'Space Mono', monospace; }
+
+        .pct-change {
+            font-family: 'Space Mono', monospace;
+            font-size: 12px;
+        }
 
         .sources-grid {
             display: grid;
@@ -377,6 +382,11 @@
         .toast.show { transform: translateY(0); opacity: 1; }
         .toast.success { border-color: var(--positive); }
         .toast.error { border-color: var(--negative); }
+
+        /* Scrollable table wrapper */
+        .table-scroll-wrapper {
+            overflow-x: auto;
+        }
 
         @media (max-width: 1200px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -581,19 +591,24 @@
                         <input type="text" placeholder="Search country..." id="countrySearch" oninput="filterCountries()">
                     </div>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Country</th>
-                            <th>Holdings (t)</th>
-                            <th>% of Reserves</th>
-                            <th>Q3 2025 Change</th>
-                            <th>YTD Change</th>
-                        </tr>
-                    </thead>
-                    <tbody id="countriesTableBody"></tbody>
-                </table>
+                <div class="table-scroll-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Country</th>
+                                <th>Holdings (t)</th>
+                                <th>% Reserves</th>
+                                <th>1Y Δ</th>
+                                <th>2Y Δ</th>
+                                <th>3Y Δ</th>
+                                <th>4Y Δ</th>
+                                <th>5Y Δ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="countriesTableBody"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
@@ -681,7 +696,6 @@
         // Source: World Gold Council Gold Demand Trends
         // ===========================================
         const quarterlyData = {
-            // Quarterly net purchases by all central banks (tonnes)
             netPurchases: {
                 '2020-Q1': 109, '2020-Q2': 64, '2020-Q3': 12, '2020-Q4': 68,
                 '2021-Q1': 95, '2021-Q2': 199, '2021-Q3': 91, '2021-Q4': 30,
@@ -690,7 +704,6 @@
                 '2024-Q1': 290, '2024-Q2': 183, '2024-Q3': 186, '2024-Q4': 333,
                 '2025-Q1': 244, '2025-Q2': 166, '2025-Q3': 220
             },
-            // Cumulative holdings at quarter end (tonnes)
             holdings: {
                 '2020-Q1': 34850, '2020-Q2': 34914, '2020-Q3': 34926, '2020-Q4': 34994,
                 '2021-Q1': 35089, '2021-Q2': 35288, '2021-Q3': 35379, '2021-Q4': 35409,
@@ -699,7 +712,6 @@
                 '2024-Q1': 37767, '2024-Q2': 37950, '2024-Q3': 38136, '2024-Q4': 38469,
                 '2025-Q1': 38713, '2025-Q2': 38879, '2025-Q3': 39099
             },
-            // Average gold price per quarter (USD/oz)
             goldPrice: {
                 '2020-Q1': 1583, '2020-Q2': 1711, '2020-Q3': 1909, '2020-Q4': 1874,
                 '2021-Q1': 1794, '2021-Q2': 1816, '2021-Q3': 1790, '2021-Q4': 1795,
@@ -718,146 +730,162 @@
             'PL': {
                 name: 'Poland',
                 holdings: {
-                    '2022-Q1': 229, '2022-Q2': 229, '2022-Q3': 229, '2022-Q4': 229,
-                    '2023-Q1': 229, '2023-Q2': 277, '2023-Q3': 334, '2023-Q4': 358,
-                    '2024-Q1': 358, '2024-Q2': 377, '2024-Q3': 420, '2024-Q4': 448,
-                    '2025-Q1': 497, '2025-Q2': 515, '2025-Q3': 515
+                    '2020-Q3': 229, '2021-Q3': 229, '2022-Q3': 229, '2023-Q3': 334, '2024-Q3': 420, '2025-Q3': 515
                 }
             },
             'CN': {
                 name: 'China',
                 holdings: {
-                    '2022-Q1': 1948, '2022-Q2': 1948, '2022-Q3': 1948, '2022-Q4': 2010,
-                    '2023-Q1': 2068, '2023-Q2': 2113, '2023-Q3': 2192, '2023-Q4': 2236,
-                    '2024-Q1': 2262, '2024-Q2': 2264, '2024-Q3': 2264, '2024-Q4': 2280,
-                    '2025-Q1': 2285, '2025-Q2': 2285, '2025-Q3': 2290
+                    '2020-Q3': 1948, '2021-Q3': 1948, '2022-Q3': 1948, '2023-Q3': 2192, '2024-Q3': 2264, '2025-Q3': 2290
                 }
             },
             'TR': {
                 name: 'Turkey',
                 holdings: {
-                    '2022-Q1': 432, '2022-Q2': 469, '2022-Q3': 489, '2022-Q4': 542,
-                    '2023-Q1': 572, '2023-Q2': 470, '2023-Q3': 523, '2023-Q4': 523,
-                    '2024-Q1': 540, '2024-Q2': 585, '2024-Q3': 595, '2024-Q4': 617,
-                    '2025-Q1': 621, '2025-Q2': 630, '2025-Q3': 635
+                    '2020-Q3': 583, '2021-Q3': 423, '2022-Q3': 489, '2023-Q3': 523, '2024-Q3': 595, '2025-Q3': 635
                 }
             },
             'IN': {
                 name: 'India',
                 holdings: {
-                    '2022-Q1': 760, '2022-Q2': 768, '2022-Q3': 785, '2022-Q4': 787,
-                    '2023-Q1': 795, '2023-Q2': 795, '2023-Q3': 804, '2023-Q4': 804,
-                    '2024-Q1': 822, '2024-Q2': 841, '2024-Q3': 854, '2024-Q4': 876,
-                    '2025-Q1': 880, '2025-Q2': 883, '2025-Q3': 886
+                    '2020-Q3': 668, '2021-Q3': 734, '2022-Q3': 785, '2023-Q3': 804, '2024-Q3': 854, '2025-Q3': 886
                 }
             },
             'RU': {
                 name: 'Russia',
                 holdings: {
-                    '2022-Q1': 2299, '2022-Q2': 2299, '2022-Q3': 2299, '2022-Q4': 2299,
-                    '2023-Q1': 2327, '2023-Q2': 2330, '2023-Q3': 2333, '2023-Q4': 2333,
-                    '2024-Q1': 2333, '2024-Q2': 2336, '2024-Q3': 2336, '2024-Q4': 2336,
-                    '2025-Q1': 2336, '2025-Q2': 2336, '2025-Q3': 2340
+                    '2020-Q3': 2299, '2021-Q3': 2302, '2022-Q3': 2299, '2023-Q3': 2333, '2024-Q3': 2336, '2025-Q3': 2340
                 }
             },
             'KZ': {
                 name: 'Kazakhstan',
                 holdings: {
-                    '2022-Q1': 395, '2022-Q2': 381, '2022-Q3': 360, '2022-Q4': 352,
-                    '2023-Q1': 340, '2023-Q2': 310, '2023-Q3': 292, '2023-Q4': 284,
-                    '2024-Q1': 274, '2024-Q2': 262, '2024-Q3': 283, '2024-Q4': 284,
-                    '2025-Q1': 291, '2025-Q2': 306, '2025-Q3': 324
+                    '2020-Q3': 391, '2021-Q3': 407, '2022-Q3': 360, '2023-Q3': 292, '2024-Q3': 283, '2025-Q3': 324
                 }
             },
             'SG': {
                 name: 'Singapore',
                 holdings: {
-                    '2022-Q1': 154, '2022-Q2': 191, '2022-Q3': 222, '2022-Q4': 222,
-                    '2023-Q1': 222, '2023-Q2': 226, '2023-Q3': 230, '2023-Q4': 227,
-                    '2024-Q1': 229, '2024-Q2': 230, '2024-Q3': 233, '2024-Q4': 236,
-                    '2025-Q1': 236, '2025-Q2': 236, '2025-Q3': 236
+                    '2020-Q3': 127, '2021-Q3': 154, '2022-Q3': 222, '2023-Q3': 230, '2024-Q3': 233, '2025-Q3': 236
                 }
             },
             'CZ': {
                 name: 'Czech Republic',
                 holdings: {
-                    '2022-Q1': 11, '2022-Q2': 13, '2022-Q3': 16, '2022-Q4': 16,
-                    '2023-Q1': 18, '2023-Q2': 24, '2023-Q3': 30, '2023-Q4': 36,
-                    '2024-Q1': 41, '2024-Q2': 47, '2024-Q3': 53, '2024-Q4': 56,
-                    '2025-Q1': 61, '2025-Q2': 63, '2025-Q3': 67
+                    '2020-Q3': 11, '2021-Q3': 11, '2022-Q3': 16, '2023-Q3': 30, '2024-Q3': 53, '2025-Q3': 67
                 }
             },
             'QA': {
                 name: 'Qatar',
                 holdings: {
-                    '2022-Q1': 56, '2022-Q2': 63, '2022-Q3': 66, '2022-Q4': 67,
-                    '2023-Q1': 68, '2023-Q2': 71, '2023-Q3': 74, '2023-Q4': 77,
-                    '2024-Q1': 80, '2024-Q2': 84, '2024-Q3': 87, '2024-Q4': 91,
-                    '2025-Q1': 94, '2025-Q2': 94, '2025-Q3': 93
+                    '2020-Q3': 56, '2021-Q3': 56, '2022-Q3': 66, '2023-Q3': 74, '2024-Q3': 87, '2025-Q3': 93
                 }
             },
             'IQ': {
                 name: 'Iraq',
                 holdings: {
-                    '2022-Q1': 96, '2022-Q2': 96, '2022-Q3': 130, '2022-Q4': 130,
-                    '2023-Q1': 130, '2023-Q2': 130, '2023-Q3': 132, '2023-Q4': 132,
-                    '2024-Q1': 142, '2024-Q2': 148, '2024-Q3': 152, '2024-Q4': 153,
-                    '2025-Q1': 153, '2025-Q2': 153, '2025-Q3': 159
+                    '2020-Q3': 96, '2021-Q3': 96, '2022-Q3': 130, '2023-Q3': 132, '2024-Q3': 152, '2025-Q3': 159
                 }
             },
             'HU': {
                 name: 'Hungary',
                 holdings: {
-                    '2022-Q1': 94, '2022-Q2': 94, '2022-Q3': 94, '2022-Q4': 94,
-                    '2023-Q1': 94, '2023-Q2': 94, '2023-Q3': 94, '2023-Q4': 94,
-                    '2024-Q1': 94, '2024-Q2': 94, '2024-Q3': 110, '2024-Q4': 110,
-                    '2025-Q1': 110, '2025-Q2': 110, '2025-Q3': 110
+                    '2020-Q3': 32, '2021-Q3': 94, '2022-Q3': 94, '2023-Q3': 94, '2024-Q3': 110, '2025-Q3': 110
                 }
             },
             'AZ': {
                 name: 'Azerbaijan',
                 holdings: {
-                    '2022-Q1': 72, '2022-Q2': 72, '2022-Q3': 72, '2022-Q4': 72,
-                    '2023-Q1': 72, '2023-Q2': 72, '2023-Q3': 72, '2023-Q4': 72,
-                    '2024-Q1': 80, '2024-Q2': 90, '2024-Q3': 97, '2024-Q4': 97,
-                    '2025-Q1': 115, '2025-Q2': 128, '2025-Q3': 132
+                    '2020-Q3': 72, '2021-Q3': 72, '2022-Q3': 72, '2023-Q3': 72, '2024-Q3': 97, '2025-Q3': 132
                 }
             },
             'BR': {
                 name: 'Brazil',
                 holdings: {
-                    '2022-Q1': 130, '2022-Q2': 130, '2022-Q3': 130, '2022-Q4': 130,
-                    '2023-Q1': 130, '2023-Q2': 130, '2023-Q3': 130, '2023-Q4': 130,
-                    '2024-Q1': 130, '2024-Q2': 130, '2024-Q3': 130, '2024-Q4': 130,
-                    '2025-Q1': 130, '2025-Q2': 130, '2025-Q3': 161
+                    '2020-Q3': 67, '2021-Q3': 130, '2022-Q3': 130, '2023-Q3': 130, '2024-Q3': 130, '2025-Q3': 161
                 }
             },
-            // Major Holders (mostly stable)
-            'US': { name: 'United States', holdings: { '2022-Q1': 8134, '2022-Q2': 8134, '2022-Q3': 8134, '2022-Q4': 8134, '2023-Q1': 8134, '2023-Q2': 8134, '2023-Q3': 8134, '2023-Q4': 8134, '2024-Q1': 8134, '2024-Q2': 8134, '2024-Q3': 8134, '2024-Q4': 8134, '2025-Q1': 8134, '2025-Q2': 8134, '2025-Q3': 8134 } },
-            'DE': { name: 'Germany', holdings: { '2022-Q1': 3359, '2022-Q2': 3356, '2022-Q3': 3355, '2022-Q4': 3355, '2023-Q1': 3355, '2023-Q2': 3354, '2023-Q3': 3353, '2023-Q4': 3353, '2024-Q1': 3352, '2024-Q2': 3352, '2024-Q3': 3352, '2024-Q4': 3352, '2025-Q1': 3352, '2025-Q2': 3352, '2025-Q3': 3352 } },
-            'IT': { name: 'Italy', holdings: { '2022-Q1': 2452, '2022-Q2': 2452, '2022-Q3': 2452, '2022-Q4': 2452, '2023-Q1': 2452, '2023-Q2': 2452, '2023-Q3': 2452, '2023-Q4': 2452, '2024-Q1': 2452, '2024-Q2': 2452, '2024-Q3': 2452, '2024-Q4': 2452, '2025-Q1': 2452, '2025-Q2': 2452, '2025-Q3': 2452 } },
-            'FR': { name: 'France', holdings: { '2022-Q1': 2437, '2022-Q2': 2437, '2022-Q3': 2437, '2022-Q4': 2437, '2023-Q1': 2437, '2023-Q2': 2437, '2023-Q3': 2437, '2023-Q4': 2437, '2024-Q1': 2437, '2024-Q2': 2437, '2024-Q3': 2437, '2024-Q4': 2437, '2025-Q1': 2437, '2025-Q2': 2437, '2025-Q3': 2437 } },
-            'CH': { name: 'Switzerland', holdings: { '2022-Q1': 1040, '2022-Q2': 1040, '2022-Q3': 1040, '2022-Q4': 1040, '2023-Q1': 1040, '2023-Q2': 1040, '2023-Q3': 1040, '2023-Q4': 1040, '2024-Q1': 1040, '2024-Q2': 1040, '2024-Q3': 1040, '2024-Q4': 1040, '2025-Q1': 1040, '2025-Q2': 1040, '2025-Q3': 1040 } },
-            'JP': { name: 'Japan', holdings: { '2022-Q1': 846, '2022-Q2': 846, '2022-Q3': 846, '2022-Q4': 846, '2023-Q1': 846, '2023-Q2': 846, '2023-Q3': 846, '2023-Q4': 846, '2024-Q1': 846, '2024-Q2': 846, '2024-Q3': 846, '2024-Q4': 846, '2025-Q1': 846, '2025-Q2': 846, '2025-Q3': 846 } }
+            'US': {
+                name: 'United States',
+                holdings: {
+                    '2020-Q3': 8134, '2021-Q3': 8134, '2022-Q3': 8134, '2023-Q3': 8134, '2024-Q3': 8134, '2025-Q3': 8134
+                }
+            },
+            'DE': {
+                name: 'Germany',
+                holdings: {
+                    '2020-Q3': 3362, '2021-Q3': 3359, '2022-Q3': 3355, '2023-Q3': 3353, '2024-Q3': 3352, '2025-Q3': 3352
+                }
+            },
+            'IT': {
+                name: 'Italy',
+                holdings: {
+                    '2020-Q3': 2452, '2021-Q3': 2452, '2022-Q3': 2452, '2023-Q3': 2452, '2024-Q3': 2452, '2025-Q3': 2452
+                }
+            },
+            'FR': {
+                name: 'France',
+                holdings: {
+                    '2020-Q3': 2436, '2021-Q3': 2436, '2022-Q3': 2437, '2023-Q3': 2437, '2024-Q3': 2437, '2025-Q3': 2437
+                }
+            },
+            'CH': {
+                name: 'Switzerland',
+                holdings: {
+                    '2020-Q3': 1040, '2021-Q3': 1040, '2022-Q3': 1040, '2023-Q3': 1040, '2024-Q3': 1040, '2025-Q3': 1040
+                }
+            },
+            'JP': {
+                name: 'Japan',
+                holdings: {
+                    '2020-Q3': 765, '2021-Q3': 846, '2022-Q3': 846, '2023-Q3': 846, '2024-Q3': 846, '2025-Q3': 846
+                }
+            },
+            'NL': {
+                name: 'Netherlands',
+                holdings: {
+                    '2020-Q3': 613, '2021-Q3': 613, '2022-Q3': 613, '2023-Q3': 613, '2024-Q3': 613, '2025-Q3': 613
+                }
+            },
+            'TW': {
+                name: 'Taiwan',
+                holdings: {
+                    '2020-Q3': 424, '2021-Q3': 424, '2022-Q3': 424, '2023-Q3': 424, '2024-Q3': 424, '2025-Q3': 424
+                }
+            },
+            'UZ': {
+                name: 'Uzbekistan',
+                holdings: {
+                    '2020-Q3': 326, '2021-Q3': 362, '2022-Q3': 395, '2023-Q3': 371, '2024-Q3': 368, '2025-Q3': 366
+                }
+            }
         };
 
-        // Top holders for countries table
+        // Top holders for countries table - with historical data for % calculations
+        // Current = Q3 2025, then Q3 for each prior year
         const topHolders = [
-            { rank: 1, country: 'United States', code: 'US', holdings: 8133.5, pctReserves: 72.4, q3Change: 0, ytdChange: 0 },
-            { rank: 2, country: 'Germany', code: 'DE', holdings: 3352.3, pctReserves: 71.5, q3Change: 0, ytdChange: 0 },
-            { rank: 3, country: 'Italy', code: 'IT', holdings: 2451.8, pctReserves: 68.3, q3Change: 0, ytdChange: 0 },
-            { rank: 4, country: 'France', code: 'FR', holdings: 2436.9, pctReserves: 69.8, q3Change: 0, ytdChange: 0 },
-            { rank: 5, country: 'Russia', code: 'RU', holdings: 2340.0, pctReserves: 32.1, q3Change: 4, ytdChange: 4 },
-            { rank: 6, country: 'China', code: 'CN', holdings: 2290.0, pctReserves: 5.8, q3Change: 5, ytdChange: 10 },
-            { rank: 7, country: 'Switzerland', code: 'CH', holdings: 1040.0, pctReserves: 8.4, q3Change: 0, ytdChange: 0 },
-            { rank: 8, country: 'India', code: 'IN', holdings: 886.0, pctReserves: 10.8, q3Change: 3, ytdChange: 10 },
-            { rank: 9, country: 'Japan', code: 'JP', holdings: 846.0, pctReserves: 4.6, q3Change: 0, ytdChange: 0 },
-            { rank: 10, country: 'Turkey', code: 'TR', holdings: 635.0, pctReserves: 35.2, q3Change: 5, ytdChange: 18 },
-            { rank: 11, country: 'Netherlands', code: 'NL', holdings: 612.5, pctReserves: 62.4, q3Change: 0, ytdChange: 0 },
-            { rank: 12, country: 'Poland', code: 'PL', holdings: 515.0, pctReserves: 22.0, q3Change: 0, ytdChange: 67 },
-            { rank: 13, country: 'Kazakhstan', code: 'KZ', holdings: 324.0, pctReserves: 56.2, q3Change: 18, ytdChange: 40 },
-            { rank: 14, country: 'Singapore', code: 'SG', holdings: 236.0, pctReserves: 4.2, q3Change: 0, ytdChange: 0 },
-            { rank: 15, country: 'Brazil', code: 'BR', holdings: 161.0, pctReserves: 3.1, q3Change: 31, ytdChange: 31 }
+            { rank: 1, country: 'United States', code: 'US', holdings: 8133.5, pctReserves: 72.4, h: { y0: 8134, y1: 8134, y2: 8134, y3: 8134, y4: 8134, y5: 8134 } },
+            { rank: 2, country: 'Germany', code: 'DE', holdings: 3352.3, pctReserves: 71.5, h: { y0: 3352, y1: 3352, y2: 3353, y3: 3355, y4: 3359, y5: 3362 } },
+            { rank: 3, country: 'Italy', code: 'IT', holdings: 2451.8, pctReserves: 68.3, h: { y0: 2452, y1: 2452, y2: 2452, y3: 2452, y4: 2452, y5: 2452 } },
+            { rank: 4, country: 'France', code: 'FR', holdings: 2436.9, pctReserves: 69.8, h: { y0: 2437, y1: 2437, y2: 2437, y3: 2437, y4: 2436, y5: 2436 } },
+            { rank: 5, country: 'Russia', code: 'RU', holdings: 2340.0, pctReserves: 32.1, h: { y0: 2340, y1: 2336, y2: 2333, y3: 2299, y4: 2302, y5: 2299 } },
+            { rank: 6, country: 'China', code: 'CN', holdings: 2290.0, pctReserves: 5.8, h: { y0: 2290, y1: 2264, y2: 2192, y3: 1948, y4: 1948, y5: 1948 } },
+            { rank: 7, country: 'Switzerland', code: 'CH', holdings: 1040.0, pctReserves: 8.4, h: { y0: 1040, y1: 1040, y2: 1040, y3: 1040, y4: 1040, y5: 1040 } },
+            { rank: 8, country: 'India', code: 'IN', holdings: 886.0, pctReserves: 10.8, h: { y0: 886, y1: 854, y2: 804, y3: 785, y4: 734, y5: 668 } },
+            { rank: 9, country: 'Japan', code: 'JP', holdings: 846.0, pctReserves: 4.6, h: { y0: 846, y1: 846, y2: 846, y3: 846, y4: 846, y5: 765 } },
+            { rank: 10, country: 'Turkey', code: 'TR', holdings: 635.0, pctReserves: 35.2, h: { y0: 635, y1: 595, y2: 523, y3: 489, y4: 423, y5: 583 } },
+            { rank: 11, country: 'Netherlands', code: 'NL', holdings: 612.5, pctReserves: 62.4, h: { y0: 613, y1: 613, y2: 613, y3: 613, y4: 613, y5: 613 } },
+            { rank: 12, country: 'Poland', code: 'PL', holdings: 515.0, pctReserves: 22.0, h: { y0: 515, y1: 420, y2: 334, y3: 229, y4: 229, y5: 229 } },
+            { rank: 13, country: 'Taiwan', code: 'TW', holdings: 423.6, pctReserves: 4.4, h: { y0: 424, y1: 424, y2: 424, y3: 424, y4: 424, y5: 424 } },
+            { rank: 14, country: 'Uzbekistan', code: 'UZ', holdings: 366.0, pctReserves: 82.0, h: { y0: 366, y1: 368, y2: 371, y3: 395, y4: 362, y5: 326 } },
+            { rank: 15, country: 'Kazakhstan', code: 'KZ', holdings: 324.0, pctReserves: 56.2, h: { y0: 324, y1: 283, y2: 292, y3: 360, y4: 407, y5: 391 } },
+            { rank: 16, country: 'Singapore', code: 'SG', holdings: 236.0, pctReserves: 4.2, h: { y0: 236, y1: 233, y2: 230, y3: 222, y4: 154, y5: 127 } },
+            { rank: 17, country: 'Brazil', code: 'BR', holdings: 161.0, pctReserves: 3.1, h: { y0: 161, y1: 130, y2: 130, y3: 130, y4: 130, y5: 67 } },
+            { rank: 18, country: 'Iraq', code: 'IQ', holdings: 159.0, pctReserves: 10.2, h: { y0: 159, y1: 152, y2: 132, y3: 130, y4: 96, y5: 96 } },
+            { rank: 19, country: 'Azerbaijan', code: 'AZ', holdings: 132.0, pctReserves: 18.0, h: { y0: 132, y1: 97, y2: 72, y3: 72, y4: 72, y5: 72 } },
+            { rank: 20, country: 'Hungary', code: 'HU', holdings: 110.0, pctReserves: 12.5, h: { y0: 110, y1: 110, y2: 94, y3: 94, y4: 94, y5: 32 } },
+            { rank: 21, country: 'Qatar', code: 'QA', holdings: 93.0, pctReserves: 7.8, h: { y0: 93, y1: 87, y2: 74, y3: 66, y4: 56, y5: 56 } },
+            { rank: 22, country: 'Czech Republic', code: 'CZ', holdings: 67.0, pctReserves: 5.2, h: { y0: 67, y1: 53, y2: 30, y3: 16, y4: 11, y5: 11 } }
         ];
 
         // Top Q3 2025 buyers
@@ -1120,18 +1148,45 @@
         // ===========================================
         // TABLES
         // ===========================================
+        
+        // Calculate % change between two values
+        function calcPctChange(current, previous) {
+            if (!previous || previous === 0) return null;
+            return ((current - previous) / previous * 100).toFixed(1);
+        }
+
+        // Format % change for display
+        function formatPctChange(pct) {
+            if (pct === null || pct === undefined || isNaN(pct)) return '—';
+            const num = parseFloat(pct);
+            const sign = num >= 0 ? '+' : '';
+            const cssClass = num > 0 ? 'change-positive' : num < 0 ? 'change-negative' : '';
+            return `<span class="pct-change ${cssClass}">${sign}${num}%</span>`;
+        }
+
         function populateCountriesTable() {
             const tbody = document.getElementById('countriesTableBody');
-            tbody.innerHTML = topHolders.map(h => `
+            tbody.innerHTML = topHolders.map(h => {
+                // Calculate % changes: y0=current, y1=1yr ago, y2=2yr ago, etc.
+                const pct1y = calcPctChange(h.h.y0, h.h.y1);
+                const pct2y = calcPctChange(h.h.y0, h.h.y2);
+                const pct3y = calcPctChange(h.h.y0, h.h.y3);
+                const pct4y = calcPctChange(h.h.y0, h.h.y4);
+                const pct5y = calcPctChange(h.h.y0, h.h.y5);
+                
+                return `
                 <tr>
                     <td>${h.rank}</td>
                     <td><div class="country-cell"><div class="country-flag">${h.code}</div><span>${h.country}</span></div></td>
                     <td class="tonnes">${h.holdings.toLocaleString()}</td>
                     <td>${h.pctReserves}%</td>
-                    <td class="${h.q3Change > 0 ? 'change-positive' : h.q3Change < 0 ? 'change-negative' : ''}">${h.q3Change > 0 ? '+' : ''}${h.q3Change || '—'}${h.q3Change ? 't' : ''}</td>
-                    <td class="${h.ytdChange > 0 ? 'change-positive' : h.ytdChange < 0 ? 'change-negative' : ''}">${h.ytdChange > 0 ? '+' : ''}${h.ytdChange || '—'}${h.ytdChange ? 't' : ''}</td>
+                    <td>${formatPctChange(pct1y)}</td>
+                    <td>${formatPctChange(pct2y)}</td>
+                    <td>${formatPctChange(pct3y)}</td>
+                    <td>${formatPctChange(pct4y)}</td>
+                    <td>${formatPctChange(pct5y)}</td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         function filterCountries() {
@@ -1139,16 +1194,26 @@
             const filtered = topHolders.filter(h => h.country.toLowerCase().includes(search) || h.code.toLowerCase().includes(search));
             
             const tbody = document.getElementById('countriesTableBody');
-            tbody.innerHTML = filtered.map(h => `
+            tbody.innerHTML = filtered.map(h => {
+                const pct1y = calcPctChange(h.h.y0, h.h.y1);
+                const pct2y = calcPctChange(h.h.y0, h.h.y2);
+                const pct3y = calcPctChange(h.h.y0, h.h.y3);
+                const pct4y = calcPctChange(h.h.y0, h.h.y4);
+                const pct5y = calcPctChange(h.h.y0, h.h.y5);
+                
+                return `
                 <tr>
                     <td>${h.rank}</td>
                     <td><div class="country-cell"><div class="country-flag">${h.code}</div><span>${h.country}</span></div></td>
                     <td class="tonnes">${h.holdings.toLocaleString()}</td>
                     <td>${h.pctReserves}%</td>
-                    <td class="${h.q3Change > 0 ? 'change-positive' : h.q3Change < 0 ? 'change-negative' : ''}">${h.q3Change > 0 ? '+' : ''}${h.q3Change || '—'}${h.q3Change ? 't' : ''}</td>
-                    <td class="${h.ytdChange > 0 ? 'change-positive' : h.ytdChange < 0 ? 'change-negative' : ''}">${h.ytdChange > 0 ? '+' : ''}${h.ytdChange || '—'}${h.ytdChange ? 't' : ''}</td>
+                    <td>${formatPctChange(pct1y)}</td>
+                    <td>${formatPctChange(pct2y)}</td>
+                    <td>${formatPctChange(pct3y)}</td>
+                    <td>${formatPctChange(pct4y)}</td>
+                    <td>${formatPctChange(pct5y)}</td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         function populateHistoricalTable(period = 12, country = 'all', view = 'quarterly') {
@@ -1214,8 +1279,15 @@
         }
 
         function exportData() {
-            let csv = 'Rank,Country,Holdings (t),% of Reserves,Q3 Change,YTD Change\n';
-            topHolders.forEach(h => { csv += `${h.rank},${h.country},${h.holdings},${h.pctReserves},${h.q3Change},${h.ytdChange}\n`; });
+            let csv = 'Rank,Country,Holdings (t),% of Reserves,1Y %,2Y %,3Y %,4Y %,5Y %\n';
+            topHolders.forEach(h => {
+                const pct1y = calcPctChange(h.h.y0, h.h.y1) || 0;
+                const pct2y = calcPctChange(h.h.y0, h.h.y2) || 0;
+                const pct3y = calcPctChange(h.h.y0, h.h.y3) || 0;
+                const pct4y = calcPctChange(h.h.y0, h.h.y4) || 0;
+                const pct5y = calcPctChange(h.h.y0, h.h.y5) || 0;
+                csv += `${h.rank},${h.country},${h.holdings},${h.pctReserves},${pct1y},${pct2y},${pct3y},${pct4y},${pct5y}\n`;
+            });
             downloadFile(csv, 'central_bank_gold_holdings.csv', 'text/csv');
             showToast('Data exported!', 'success');
         }
