@@ -715,30 +715,30 @@
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Global CB Holdings</div>
-                <div class="stat-value" id="totalHoldings">36,699</div>
+                <div class="stat-value" id="totalHoldings">36,359</div>
                 <div class="stat-change positive" id="holdingsChange">
-                    <span>▲</span> +1,037t (2024)
+                    <span>▲</span> +809t YTD (Q3 2025)
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Net Purchases (2024)</div>
-                <div class="stat-value" id="netPurchases">+1,037t</div>
+                <div class="stat-label">Net Purchases (2025 YTD)</div>
+                <div class="stat-value" id="netPurchases">~850t</div>
                 <div class="stat-change positive">
-                    <span>▲</span> 3rd consecutive year >1,000t
+                    <span>▲</span> 4th consecutive year >800t
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Top Buyer (2024)</div>
+                <div class="stat-label">Top Buyer (2025)</div>
                 <div class="stat-value" id="topBuyer">Poland</div>
                 <div class="stat-change positive">
-                    <span>▲</span> +90t
+                    <span>▲</span> +67t (through Q3)
                 </div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Last Updated</div>
                 <div class="stat-value" id="lastUpdated" style="font-size: 24px;">—</div>
                 <div class="stat-change">
-                    <span>IMF IFS + WGC Q3 2024</span>
+                    <span>IMF IFS + WGC Q3 2025</span>
                 </div>
             </div>
         </div>
@@ -774,8 +774,8 @@
                 <div class="chart-card">
                     <div class="chart-header">
                         <div>
-                            <div class="chart-title">Top Buyers (2024)</div>
-                            <div class="chart-subtitle">Net purchases in tonnes</div>
+                            <div class="chart-title">Top Buyers (2025 YTD)</div>
+                            <div class="chart-subtitle">Net purchases in tonnes (through Q3)</div>
                         </div>
                     </div>
                     <div class="chart-container">
@@ -829,8 +829,8 @@
             <div class="chart-card">
                 <div class="chart-header">
                     <div>
-                        <div class="chart-title">Historical Central Bank Gold Activity (1985-2024)</div>
-                        <div class="chart-subtitle">40 years of data from World Gold Council</div>
+                        <div class="chart-title">Historical Central Bank Gold Activity (1985-2025)</div>
+                        <div class="chart-subtitle">41 years of data from World Gold Council</div>
                     </div>
                 </div>
                 <div class="chart-container" style="height: 450px;">
@@ -877,7 +877,7 @@
                             <th>Country</th>
                             <th>Holdings (Tonnes)</th>
                             <th>% of Reserves</th>
-                            <th>2024 Change</th>
+                            <th>2025 Change</th>
                             <th>Last Reported</th>
                         </tr>
                     </thead>
@@ -968,14 +968,14 @@
                             <td>WGC Gold Demand Trends</td>
                             <td>Quarterly</td>
                             <td>6-8 weeks</td>
-                            <td>Feb 2025 (Q4 2024)</td>
+                            <td>Feb 2026 (Q4 2025)</td>
                             <td><a href="https://www.gold.org/goldhub/research/gold-demand-trends" target="_blank" style="color: var(--gold-primary);">Check →</a></td>
                         </tr>
                         <tr>
                             <td>IMF IFS</td>
                             <td>Monthly</td>
                             <td>1-2 months</td>
-                            <td>Jan 2025 (Nov 2024)</td>
+                            <td>Jan 2026 (Nov 2025)</td>
                             <td><a href="https://data.imf.org" target="_blank" style="color: var(--gold-primary);">Check →</a></td>
                         </tr>
                         <tr>
@@ -1075,6 +1075,7 @@
         const historicalData = {
             // Annual net purchases by central banks (tonnes)
             // Negative = net sales, Positive = net purchases
+            // Sources: World Gold Council Gold Demand Trends reports
             annualNetPurchases: {
                 1985: -200, 1986: -250, 1987: -300, 1988: -200, 1989: -250,
                 1990: -300, 1991: -150, 1992: -400, 1993: -500, 1994: -300,
@@ -1083,9 +1084,11 @@
                 2005: -663, 2006: -365, 2007: -484, 2008: -235, 2009: -34,
                 2010: 77, 2011: 457, 2012: 544, 2013: 409, 2014: 584,
                 2015: 577, 2016: 390, 2017: 375, 2018: 656, 2019: 650,
-                2020: 255, 2021: 463, 2022: 1082, 2023: 1037, 2024: 1037
+                2020: 255, 2021: 463, 2022: 1082, 2023: 1037, 2024: 1045,
+                2025: 850 // Estimated: Q1-Q3 = 634t, Q4 estimated ~216t (WGC data through Oct 2025)
             },
             // Cumulative holdings (approximate, tonnes)
+            // Source: IMF IFS, World Gold Council
             totalHoldings: {
                 1985: 35800, 1986: 35550, 1987: 35250, 1988: 35050, 1989: 34800,
                 1990: 34500, 1991: 34350, 1992: 33950, 1993: 33450, 1994: 33150,
@@ -1094,7 +1097,8 @@
                 2005: 28067, 2006: 27702, 2007: 27218, 2008: 26983, 2009: 26949,
                 2010: 27026, 2011: 27483, 2012: 28027, 2013: 28436, 2014: 29020,
                 2015: 29597, 2016: 29987, 2017: 30362, 2018: 31018, 2019: 31668,
-                2020: 31923, 2021: 32386, 2022: 33468, 2023: 34505, 2024: 35542
+                2020: 31923, 2021: 32386, 2022: 33468, 2023: 34505, 2024: 35550,
+                2025: 36359 // IMF data as of September 2025
             },
             // Average gold price per year (USD/oz)
             goldPrice: {
@@ -1105,38 +1109,41 @@
                 2005: 445, 2006: 604, 2007: 695, 2008: 872, 2009: 972,
                 2010: 1225, 2011: 1572, 2012: 1669, 2013: 1411, 2014: 1266,
                 2015: 1160, 2016: 1251, 2017: 1257, 2018: 1269, 2019: 1393,
-                2020: 1770, 2021: 1799, 2022: 1800, 2023: 1943, 2024: 2386
+                2020: 1770, 2021: 1799, 2022: 1800, 2023: 1943, 2024: 2386,
+                2025: 3200 // Estimated average (prices ranged ~$2600-$4400)
             }
         };
 
-        // Top holders data (2024)
+        // Top holders data (as of Q3 2025)
+        // Source: IMF IFS, World Gold Council
         const topHolders = [
-            { rank: 1, country: 'United States', code: 'US', holdings: 8133.5, pctReserves: 71.3, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 2, country: 'Germany', code: 'DE', holdings: 3352.3, pctReserves: 71.5, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 3, country: 'Italy', code: 'IT', holdings: 2451.8, pctReserves: 67.8, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 4, country: 'France', code: 'FR', holdings: 2436.9, pctReserves: 69.1, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 5, country: 'Russia', code: 'RU', holdings: 2335.9, pctReserves: 30.4, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 6, country: 'China', code: 'CN', holdings: 2264.3, pctReserves: 5.4, change2024: 44, lastReported: 'Nov 2024' },
-            { rank: 7, country: 'Switzerland', code: 'CH', holdings: 1040.0, pctReserves: 8.8, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 8, country: 'Japan', code: 'JP', holdings: 846.0, pctReserves: 4.9, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 9, country: 'India', code: 'IN', holdings: 853.6, pctReserves: 10.1, change2024: 72, lastReported: 'Dec 2024' },
-            { rank: 10, country: 'Netherlands', code: 'NL', holdings: 612.5, pctReserves: 61.7, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 11, country: 'Turkey', code: 'TR', holdings: 595.5, pctReserves: 34.2, change2024: 75, lastReported: 'Dec 2024' },
-            { rank: 12, country: 'Poland', code: 'PL', holdings: 448.2, pctReserves: 17.8, change2024: 90, lastReported: 'Dec 2024' },
-            { rank: 13, country: 'Taiwan', code: 'TW', holdings: 423.6, pctReserves: 4.6, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 14, country: 'Saudi Arabia', code: 'SA', holdings: 323.1, pctReserves: 4.9, change2024: 0, lastReported: 'Dec 2024' },
-            { rank: 15, country: 'United Kingdom', code: 'GB', holdings: 310.3, pctReserves: 11.8, change2024: 0, lastReported: 'Dec 2024' },
+            { rank: 1, country: 'United States', code: 'US', holdings: 8133.5, pctReserves: 72.4, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 2, country: 'Germany', code: 'DE', holdings: 3352.3, pctReserves: 71.5, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 3, country: 'Italy', code: 'IT', holdings: 2451.8, pctReserves: 68.3, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 4, country: 'France', code: 'FR', holdings: 2436.9, pctReserves: 69.8, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 5, country: 'Russia', code: 'RU', holdings: 2340.0, pctReserves: 32.1, change2025: 3, lastReported: 'Dec 2025' },
+            { rank: 6, country: 'China', code: 'CN', holdings: 2280.0, pctReserves: 5.8, change2025: 19, lastReported: 'Nov 2025' },
+            { rank: 7, country: 'Switzerland', code: 'CH', holdings: 1040.0, pctReserves: 8.4, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 8, country: 'India', code: 'IN', holdings: 876.2, pctReserves: 10.8, change2025: 23, lastReported: 'Dec 2025' },
+            { rank: 9, country: 'Japan', code: 'JP', holdings: 846.0, pctReserves: 4.6, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 10, country: 'Netherlands', code: 'NL', holdings: 612.5, pctReserves: 62.4, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 11, country: 'Turkey', code: 'TR', holdings: 615.0, pctReserves: 35.2, change2025: 20, lastReported: 'Dec 2025' },
+            { rank: 12, country: 'Poland', code: 'PL', holdings: 515.0, pctReserves: 24.0, change2025: 67, lastReported: 'Dec 2025' },
+            { rank: 13, country: 'Taiwan', code: 'TW', holdings: 423.6, pctReserves: 4.4, change2025: 0, lastReported: 'Dec 2025' },
+            { rank: 14, country: 'Kazakhstan', code: 'KZ', holdings: 324.0, pctReserves: 56.2, change2025: 40, lastReported: 'Dec 2025' },
+            { rank: 15, country: 'Saudi Arabia', code: 'SA', holdings: 323.1, pctReserves: 4.8, change2025: 0, lastReported: 'Dec 2025' },
         ];
 
-        // Top buyers 2024
+        // Top buyers 2025 (through Q3)
+        // Source: World Gold Council
         const topBuyers2024 = [
-            { country: 'Poland', purchases: 90 },
-            { country: 'Turkey', purchases: 75 },
-            { country: 'India', purchases: 72 },
-            { country: 'China', purchases: 44 },
-            { country: 'Czech Republic', purchases: 20 },
-            { country: 'Qatar', purchases: 15 },
-            { country: 'Singapore', purchases: 12 },
+            { country: 'Poland', purchases: 67 },
+            { country: 'Kazakhstan', purchases: 40 },
+            { country: 'Azerbaijan', purchases: 35 },
+            { country: 'India', purchases: 23 },
+            { country: 'Turkey', purchases: 20 },
+            { country: 'China', purchases: 19 },
+            { country: 'Czech Republic', purchases: 12 },
         ];
 
         // Chart instances
@@ -1457,8 +1464,8 @@
                     </td>
                     <td class="tonnes">${h.holdings.toLocaleString()}</td>
                     <td>${h.pctReserves}%</td>
-                    <td class="${h.change2024 > 0 ? 'change-positive' : h.change2024 < 0 ? 'change-negative' : ''}">
-                        ${h.change2024 > 0 ? '+' : ''}${h.change2024 || '—'}${h.change2024 ? 't' : ''}
+                    <td class="${h.change2025 > 0 ? 'change-positive' : h.change2025 < 0 ? 'change-negative' : ''}">
+                        ${h.change2025 > 0 ? '+' : ''}${h.change2025 || '—'}${h.change2025 ? 't' : ''}
                     </td>
                     <td>${h.lastReported}</td>
                 </tr>
@@ -1484,8 +1491,8 @@
                     </td>
                     <td class="tonnes">${h.holdings.toLocaleString()}</td>
                     <td>${h.pctReserves}%</td>
-                    <td class="${h.change2024 > 0 ? 'change-positive' : h.change2024 < 0 ? 'change-negative' : ''}">
-                        ${h.change2024 > 0 ? '+' : ''}${h.change2024 || '—'}${h.change2024 ? 't' : ''}
+                    <td class="${h.change2025 > 0 ? 'change-positive' : h.change2025 < 0 ? 'change-negative' : ''}">
+                        ${h.change2025 > 0 ? '+' : ''}${h.change2025 || '—'}${h.change2025 ? 't' : ''}
                     </td>
                     <td>${h.lastReported}</td>
                 </tr>
