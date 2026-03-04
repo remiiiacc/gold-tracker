@@ -1290,12 +1290,12 @@
                     <button class="btn" onclick="downloadCurrentData()" style="font-size:11px;padding:4px 10px;">&#8595; Download Current Dataset</button>
                 </div>
                 <div class="source-desc" style="margin-top:6px;">
-                    Upload a WGC Gold Demand Trends PDF (available quarterly at gold.org). Jewelry, bar &amp; coin, ETF flows, central bank purchases and gold price are extracted automatically.
+                    Upload a WGC Gold Demand Trends XLSX file (<code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">GDT_Tables_Q*_EN.xlsx</code>, available quarterly at gold.org). All demand series and gold price are extracted from the Gold Balance sheet automatically.
                 </div>
                 <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <label class="btn" style="cursor:pointer;font-size:12px;padding:5px 12px;">
-                        &#128196; Choose PDF File
-                        <input type="file" id="uploadInput" accept=".pdf" style="display:none;" onchange="handleUpload(event)">
+                        &#128196; Choose XLSX File
+                        <input type="file" id="uploadInput" accept=".xlsx,.xls" style="display:none;" onchange="handleUpload(event)">
                     </label>
                     <span id="upload-filename" style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">No file selected</span>
                 </div>
@@ -2650,7 +2650,20 @@
             return errors;
         }
 
-        let _pendingUploadRows = [];
+        let _pendingUploadRows  = [];
+        let _pendingXlsxRawRows = [];   // original XLSX rows saved to wgc_demand.json
+
+        /** Normalize XLSX row keys to match the frontend's internal field names. */
+        function normalizeXlsxRow(r) {
+            return {
+                quarter:      r.quarter,
+                jewelry:      r.jewellery,
+                barCoin:      r.bar_coin,
+                etfFlows:     r.etf_flows,
+                netPurchases: r.central_banks,
+                goldPrice:    r.gold_price,
+            };
+        }
 
         function handleUpload(event) {
             const file = event.target.files[0];
@@ -2658,28 +2671,31 @@
             document.getElementById('upload-filename').textContent = file.name;
             document.getElementById('upload-error').style.display = 'none';
             document.getElementById('upload-success').style.display = 'none';
-            _pendingUploadRows = [];
+            _pendingUploadRows  = [];
+            _pendingXlsxRawRows = [];
 
             const prevEl = document.getElementById('upload-preview');
             prevEl.style.display = 'block';
             prevEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">'
-                             + '&#9203; Parsing PDF&hellip;</div>';
+                             + '&#9203; Parsing XLSX&hellip;</div>';
 
             const formData = new FormData();
             formData.append('file', file);
 
-            fetch('/api/upload-pdf', { method: 'POST', body: formData })
+            fetch('/api/upload-xlsx', { method: 'POST', body: formData })
                 .then(r => r.json())
                 .then(data => {
                     prevEl.style.display = 'none';
-                    if (data.error) { showUploadError(data.error); return; }
+                    if (data.error) { showUploadError(data.error + (data.hint ? '\n' + data.hint : '')); return; }
                     const { rows, warnings } = data;
                     if (warnings && warnings.length) showUploadError('\u26a0 ' + warnings.join('\n'));
-                    if (!rows || !rows.length) { showUploadError('No quarterly data rows found in PDF.'); return; }
-                    const valErrors = validateRows(rows);
+                    if (!rows || !rows.length) { showUploadError('No quarterly data rows found in XLSX.'); return; }
+                    _pendingXlsxRawRows = rows;                        // keep originals for wgc_demand.json
+                    const normalized = rows.map(normalizeXlsxRow);
+                    const valErrors = validateRows(normalized);
                     if (valErrors.length) { showUploadError(valErrors.join('\n')); return; }
-                    _pendingUploadRows = rows;
-                    showUploadPreview(rows);
+                    _pendingUploadRows = normalized;
+                    showUploadPreview(normalized);
                 })
                 .catch(err => {
                     prevEl.style.display = 'none';
@@ -2736,7 +2752,8 @@
         }
 
         function cancelUpload() {
-            _pendingUploadRows = [];
+            _pendingUploadRows  = [];
+            _pendingXlsxRawRows = [];
             document.getElementById('upload-preview').style.display = 'none';
             document.getElementById('uploadInput').value = '';
             document.getElementById('upload-filename').textContent = 'No file selected';
@@ -2761,27 +2778,36 @@
             refreshAllCharts();
 
             // Persist to server
-            const latestQ = Object.keys(quarterlyData.jewelry).sort().pop();
-            fetch('/api/save-data', {
+            const latestQ   = Object.keys(quarterlyData.jewelry).sort().pop();
+            const xlsxRows  = _pendingXlsxRawRows.slice();   // capture before clearing
+            const saveChart = fetch('/api/save-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(quarterlyData),
-            })
-            .then(r => r.json())
-            .then(d => {
+            }).then(r => r.json());
+
+            const saveXlsx = xlsxRows.length
+                ? fetch('/api/save-xlsx-data', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(xlsxRows),
+                  }).then(r => r.json()).catch(() => null)
+                : Promise.resolve(null);
+
+            Promise.all([saveChart, saveXlsx]).then(([d]) => {
                 const successEl = document.getElementById('upload-success');
                 successEl.textContent = d.ok
                     ? '✓ ' + latestQ + ' data loaded. ' + nNew + ' new quarter(s) added. Dashboard updated.'
                     : '⚠ Charts updated but save failed: ' + d.error;
                 successEl.style.display = 'block';
-            })
-            .catch(() => {
+            }).catch(() => {
                 document.getElementById('upload-success').textContent = '⚠ Charts updated but server save failed (offline mode).';
                 document.getElementById('upload-success').style.display = 'block';
             });
 
             document.getElementById('upload-preview').style.display = 'none';
-            _pendingUploadRows = [];
+            _pendingUploadRows  = [];
+            _pendingXlsxRawRows = [];
             document.getElementById('uploadInput').value = '';
             document.getElementById('upload-filename').textContent = 'No file selected';
         }

@@ -160,9 +160,9 @@ def compute_analytics():
     wgc_value  = None
     wgc_label_detail = None
 
-    if os.path.exists(QUARTERLY_JSON_PATH):
+    if os.path.exists(WGC_DEMAND_JSON_PATH):
         try:
-            with open(QUARTERLY_JSON_PATH) as f:
+            with open(WGC_DEMAND_JSON_PATH) as f:
                 wgc_rows = json.load(f)
             # Sort by quarter string ascending (YYYY-QN sorts correctly as string)
             wgc_rows.sort(key=lambda r: r.get('quarter', ''))
@@ -914,7 +914,8 @@ def analysis():
 # ---------------------------------------------------------------------------
 # QUARTERLY_JSON_PATH — data store for WGC demand data (written by /api/save-data)
 # ---------------------------------------------------------------------------
-QUARTERLY_JSON_PATH = '/var/www/gold-tracker/data/quarterly.json'
+QUARTERLY_JSON_PATH  = '/var/www/gold-tracker/data/quarterly.json'
+WGC_DEMAND_JSON_PATH = '/var/www/gold-tracker/data/wgc_demand.json'
 
 
 def parse_wgc_pdf(pdf_bytes):
@@ -1298,6 +1299,27 @@ def upload_xlsx():
                         'hint': 'Make sure this is a WGC Gold Demand Trends XLSX file '
                                 '(e.g. GDT_Tables_Q425_EN.xlsx)'}), 422
     return jsonify({'rows': rows, 'warnings': warnings, 'count': len(rows)})
+
+
+@app.route('/api/save-xlsx-data', methods=['POST'])
+def save_xlsx_data():
+    """Persist confirmed XLSX rows (list format with central_banks key) to wgc_demand.json."""
+    try:
+        rows = request.get_json(force=True)
+        if not isinstance(rows, list) or not rows:
+            return jsonify({'error': 'Expected a non-empty JSON array of rows'}), 400
+        required = {'quarter', 'central_banks'}
+        missing = [i for i, r in enumerate(rows) if not required.issubset(r.keys())]
+        if missing:
+            return jsonify({'error': f'Rows at indices {missing[:5]} missing required keys'}), 400
+        os.makedirs(os.path.dirname(WGC_DEMAND_JSON_PATH), exist_ok=True)
+        with open(WGC_DEMAND_JSON_PATH, 'w') as f:
+            json.dump(rows, f, indent=2)
+        write_status_json()   # regenerate scorecard with new CB demand signal
+        return jsonify({'ok': True, 'rows': len(rows),
+                        'latestQuarter': max(r['quarter'] for r in rows)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/upload-pdf-debug', methods=['POST'])
