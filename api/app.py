@@ -47,6 +47,196 @@ def write_cache(filename, data):
     return data
 
 
+STATUS_JSON_PATH = '/var/www/gold-tracker/data/status.json'
+
+
+def compute_analytics():
+    """Compute all dashboard analytics from cached data. Returns a dict."""
+    def load(name):
+        p = cache_path(name)
+        if not os.path.exists(p):
+            return None, None
+        with open(p) as f:
+            return json.load(f), os.path.getmtime(p)
+
+    fred, fred_mtime = load('fred.json')
+    cot_data, cot_mtime = load('cot.json')
+    yf, yf_mtime = load('yfinance.json')
+    if not fred or not yf:
+        return None
+
+    # --- Monthly pairs for dual-regime regression ---
+    tips_monthly = [t for t in (fred.get('tips_monthly') or []) if t.get('value') is not None]
+    gold_monthly = fred.get('gold_monthly') or []
+    gm_map = {g['date']: g['value'] for g in gold_monthly}
+    pairs = sorted(
+        [{'date': t['date'], 'tips': t['value'], 'gold': gm_map[t['date']]}
+         for t in tips_monthly if t['date'] in gm_map],
+        key=lambda x: x['date'],
+    )
+    latest = pairs[-1] if pairs else None
+    regime1 = [(p['tips'], p['gold']) for p in pairs if p['date'] <= '2021-12-31']
+    regime2 = [(p['tips'], p['gold']) for p in pairs if p['date'] >= '2022-01-01']
+
+    def ols(pts):
+        n = len(pts)
+        if n < 2:
+            return None
+        sx = sum(x for x, y in pts); sy = sum(y for x, y in pts)
+        sxy = sum(x * y for x, y in pts); sx2 = sum(x * x for x, y in pts)
+        d = n * sx2 - sx * sx
+        if not d:
+            return None
+        sl = (n * sxy - sx * sy) / d
+        ic = (sy - sl * sx) / n
+        ym = sy / n
+        ss_tot = sum((y - ym) ** 2 for x, y in pts)
+        ss_res = sum((y - (sl * x + ic)) ** 2 for x, y in pts)
+        r2v = 1 - ss_res / ss_tot if ss_tot else 0
+        return {'slope': round(sl, 2), 'intercept': round(ic, 2), 'r2': round(r2v, 4), 'n': n}
+
+    r1 = ols(regime1)
+    r2 = ols(regime2)
+    current_tips = latest['tips'] if latest else None
+    current_gold = latest['gold'] if latest else None
+    r1_pred = round(r1['slope'] * current_tips + r1['intercept'], 2) if r1 and current_tips is not None else None
+    r2_pred = round(r2['slope'] * current_tips + r2['intercept'], 2) if r2 and current_tips is not None else None
+    premium = round(current_gold - r1_pred, 2) if current_gold is not None and r1_pred is not None else None
+    premium_pct = round(premium / r1_pred * 100, 1) if premium is not None and r1_pred else None
+
+    # --- Real rates ---
+    def last_valid(series):
+        arr = [x for x in (series if isinstance(series, list) else []) if x.get('value') is not None]
+        return arr[-1] if arr else None
+
+    tips_daily = sorted([x for x in (fred.get('tips') or []) if x.get('value') is not None], key=lambda x: x['date'])
+    dxy_daily  = sorted([x for x in (fred.get('dxy')  or []) if x.get('value') is not None], key=lambda x: x['date'])
+    sofr_rec   = last_valid(fred.get('sofr', []))
+    tips_3m_chg = round(tips_daily[-1]['value'] - tips_daily[max(0, len(tips_daily) - 63)]['value'], 3) if len(tips_daily) >= 2 else None
+    dxy_90d_chg = round(dxy_daily[-1]['value']  - dxy_daily[max(0, len(dxy_daily) - 90)]['value'],   3) if len(dxy_daily) >= 2 else None
+
+    # --- COT ---
+    cot_rows   = (cot_data or {}).get('data', [])
+    cot_latest = cot_rows[-1] if cot_rows else {}
+    cot_net    = cot_latest.get('net_long', 0)
+    window     = sorted(r['net_long'] for r in cot_rows[-260:]) if cot_rows else [cot_net]
+    cot_pctile = round(sum(1 for v in window if v <= cot_net) / len(window) * 100, 1) if window else None
+
+    # --- Ratios ---
+    def yf_close(key):
+        arr = yf.get(key, [])
+        return (arr[-1] if isinstance(arr, list) and arr else {}).get('close')
+
+    gld_p = yf_close('gld'); gdx_p = yf_close('gdx')
+    gf_p  = yf_close('gold_futures'); sf_p = yf_close('silver_futures')
+    GLD_OZ = 0.09334
+    spot   = gld_p / GLD_OZ if gld_p else None
+    cobasis = round(spot - gf_p, 2) if spot is not None and gf_p else None
+    gsr     = round(gf_p / sf_p, 2) if gf_p and sf_p else None
+    gdxgld  = round(gdx_p / gld_p, 4) if gdx_p and gld_p else None
+    gld_arr = yf.get('gld', []); gdx_arr = yf.get('gdx', [])
+    gdxgld_3yavg = None
+    if isinstance(gld_arr, list) and isinstance(gdx_arr, list) and len(gld_arr) >= 756:
+        gm2 = {x['date']: x['close'] for x in gld_arr}
+        r3y = [g['close'] / gm2[g['date']] for g in gdx_arr[-756:] if g['date'] in gm2]
+        gdxgld_3yavg = round(sum(r3y) / len(r3y), 4) if r3y else None
+
+    # --- Scorecard signals (9 signals, matching analytics.js buildScorecard) ---
+    def sig(v, bull_fn, bear_fn):
+        if v is None:
+            return 'neutral'
+        if bull_fn(v):
+            return 'bullish'
+        if bear_fn(v):
+            return 'bearish'
+        return 'neutral'
+
+    gdxgld_vs_avg = round(gdxgld - gdxgld_3yavg, 4) if gdxgld and gdxgld_3yavg else None
+    signals = {
+        'realRateTrend':    {'value': tips_3m_chg,   'signal': sig(tips_3m_chg,   lambda v: v < -0.1, lambda v: v > 0.1),  'label': '3M TIPS change'},
+        'rateModelPremium': {'value': premium_pct,   'signal': sig(premium_pct,   lambda v: v < 10,   lambda v: v > 20),   'label': 'Regime break premium %'},
+        'dxyTrend':         {'value': dxy_90d_chg,   'signal': sig(dxy_90d_chg,   lambda v: v < -1,   lambda v: v > 1),    'label': '90d DXY change'},
+        'cotPercentile':    {'value': cot_pctile,    'signal': sig(cot_pctile,    lambda v: v < 20,   lambda v: v > 80),   'label': '5Y COT percentile'},
+        'cobasis':          {'value': cobasis,       'signal': sig(cobasis,       lambda v: v > 0,    lambda v: v < -2),   'label': 'Spot minus futures ($/oz)'},
+        'gdxGldVs3yAvg':    {'value': gdxgld_vs_avg, 'signal': sig(gdxgld_vs_avg, lambda v: v > 0,    lambda v: v < -0.01),'label': 'GDX/GLD vs 3Y avg'},
+        'goldSilverRatio':  {'value': gsr,           'signal': sig(gsr,           lambda v: v < 70,   lambda v: v > 80),   'label': 'GC=F / SI=F'},
+        'cbDemand':         {'value': None,           'signal': 'neutral',                                                   'label': 'Central bank demand (WGC)'},
+        'etfFlowTrend':     {'value': None,           'signal': 'neutral',                                                   'label': 'ETF flow momentum'},
+    }
+    bullish_count = sum(1 for s in signals.values() if s['signal'] == 'bullish')
+
+    def freshness(mtime):
+        if not mtime:
+            return None
+        return {
+            'lastUpdated': datetime.utcfromtimestamp(mtime).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'ageHours': round((time.time() - mtime) / 3600, 1),
+        }
+
+    return {
+        'lastUpdated':            datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'lastDate':               latest['date'] if latest else None,
+        'currentGoldPrice':       current_gold,
+        'currentTIPS':            current_tips,
+        'regimeBreakPremium':     premium,
+        'regimeBreakPremiumPct':  premium_pct,
+        'regime1': {
+            **(r1 or {}),
+            'label':                   '2006-2021',
+            'predictedAtCurrentRate':  r1_pred,
+        },
+        'regime2': {
+            **(r2 or {}),
+            'label':                   '2022-present',
+            'predictedAtCurrentRate':  r2_pred,
+        },
+        'realRates': {
+            'tips10y':      current_tips,
+            'tips3mChange': tips_3m_chg,
+            'dxy':          dxy_daily[-1]['value'] if dxy_daily else None,
+            'dxy90dChange': dxy_90d_chg,
+            'sofr':         sofr_rec['value'] if sofr_rec else None,
+        },
+        'cot': {
+            'netLong':       cot_net,
+            'netLongPct':    cot_latest.get('net_long_pct'),
+            'openInterest':  cot_latest.get('open_interest'),
+            'percentile5y':  cot_pctile,
+            'date':          cot_latest.get('date'),
+        },
+        'ratios': {
+            'goldSilverRatio': gsr,
+            'cobasis':         cobasis,
+            'gdxGld':          gdxgld,
+            'gdxGld3yAvg':     gdxgld_3yavg,
+        },
+        'scorecard': {
+            'bullishSignals': bullish_count,
+            'totalSignals':   len(signals),
+            'composite':      f'{bullish_count}/{len(signals)}',
+            'signals':        signals,
+        },
+        'dataFreshness': {
+            'fred':     freshness(fred_mtime),
+            'cot':      freshness(cot_mtime),
+            'yfinance': freshness(yf_mtime),
+        },
+    }
+
+
+def write_status_json():
+    """Compute analytics and write to /var/www/gold-tracker/data/status.json."""
+    try:
+        data = compute_analytics()
+        if data is None:
+            return
+        os.makedirs(os.path.dirname(STATUS_JSON_PATH), exist_ok=True)
+        with open(STATUS_JSON_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass  # Never let this break a data request
+
+
 def serve(filename, fetcher_fn, force=False):
     """Generic cache-or-fetch handler."""
     if not force and is_fresh(filename):
@@ -60,6 +250,7 @@ def serve(filename, fetcher_fn, force=False):
         data = fetcher_fn()
         write_cache(filename, data)
         data['_cache'] = 'miss'
+        write_status_json()  # Regenerate status.json after every fresh fetch
         return jsonify(data)
     except Exception as e:
         # Return cached data even if stale, rather than error
@@ -152,6 +343,17 @@ def gold_price():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 503
+
+
+@app.route('/api/analytics')
+def analytics_export():
+    """Return the latest computed analytics as JSON.
+    Also regenerates /data/status.json. Useful for forcing a refresh."""
+    data = compute_analytics()
+    if data is None:
+        return jsonify({'error': 'Data not yet cached'}), 503
+    write_status_json()
+    return jsonify(data)
 
 
 @app.route('/api/health')
