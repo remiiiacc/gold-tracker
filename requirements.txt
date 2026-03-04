@@ -1,0 +1,11 @@
+flask
+flask-cors
+gunicorn
+requests
+pandas
+yfinance
+fredapi
+python-dotenv
+anthropic
+pdfplumber
+openpyxl

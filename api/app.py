@@ -154,6 +154,44 @@ def compute_analytics():
         return 'neutral'
 
     gdxgld_vs_avg = round(gdxgld - gdxgld_3yavg, 4) if gdxgld and gdxgld_3yavg else None
+
+    # ── WGC CB demand signal ────────────────────────────────────────────
+    wgc_signal = 'neutral'
+    wgc_value  = None
+    wgc_label_detail = None
+
+    if os.path.exists(QUARTERLY_JSON_PATH):
+        try:
+            with open(QUARTERLY_JSON_PATH) as f:
+                wgc_rows = json.load(f)
+            # Sort by quarter string ascending (YYYY-QN sorts correctly as string)
+            wgc_rows.sort(key=lambda r: r.get('quarter', ''))
+            cb_vals = [r['central_banks'] for r in wgc_rows
+                       if r.get('central_banks') is not None]
+            if len(cb_vals) >= 4:
+                latest_q        = cb_vals[-1]
+                trailing_4q_avg = sum(cb_vals[-4:]) / 4
+                # YoY: compare latest quarter vs same quarter one year prior (4 back)
+                yoy_pct = None
+                if len(cb_vals) >= 5:
+                    yoy_pct = ((cb_vals[-1] - cb_vals[-5]) / abs(cb_vals[-5]) * 100
+                               if cb_vals[-5] != 0 else None)
+
+                # Signal: bullish if latest > trailing 4Q avg AND yoy > 0
+                if latest_q > trailing_4q_avg and (yoy_pct is None or yoy_pct > 0):
+                    wgc_signal = 'bullish'
+                elif latest_q < trailing_4q_avg * 0.8 and (yoy_pct is not None and yoy_pct < 0):
+                    wgc_signal = 'bearish'
+                else:
+                    wgc_signal = 'neutral'
+
+                latest_quarter_label = wgc_rows[-1].get('quarter', '')
+                wgc_value = round(latest_q, 1)
+                yoy_str = f'{yoy_pct:+.1f}% YoY' if yoy_pct is not None else 'N/A YoY'
+                wgc_label_detail = f'{latest_quarter_label}: {wgc_value}t ({yoy_str})'
+        except Exception:
+            pass  # leave neutral on any error
+
     signals = {
         'realRateTrend':    {'value': tips_3m_chg,   'signal': sig(tips_3m_chg,   lambda v: v < -0.1, lambda v: v > 0.1),  'label': '3M TIPS change'},
         'rateModelPremium': {'value': premium_pct,   'signal': sig(premium_pct,   lambda v: v < 10,   lambda v: v > 20),   'label': 'Regime break premium %'},
@@ -162,7 +200,7 @@ def compute_analytics():
         'cobasis':          {'value': cobasis,       'signal': sig(cobasis,       lambda v: v > 0,    lambda v: v < -2),   'label': 'Spot minus futures ($/oz)'},
         'gdxGldVs3yAvg':    {'value': gdxgld_vs_avg, 'signal': sig(gdxgld_vs_avg, lambda v: v > 0,    lambda v: v < -0.01),'label': 'GDX/GLD vs 3Y avg'},
         'goldSilverRatio':  {'value': gsr,           'signal': sig(gsr,           lambda v: v < 70,   lambda v: v > 80),   'label': 'GC=F / SI=F'},
-        'cbDemand':         {'value': None,           'signal': 'neutral',                                                   'label': 'Central bank demand (WGC)'},
+        'cbDemand':         {'value': wgc_label_detail or wgc_value, 'signal': wgc_signal,            'label': 'Central bank demand (WGC)'},
         'etfFlowTrend':     {'value': None,           'signal': 'neutral',                                                   'label': 'ETF flow momentum'},
     }
     bullish_count = sum(1 for s in signals.values() if s['signal'] == 'bullish')
@@ -543,6 +581,38 @@ def build_snapshot():
         if bear_test(v): return 'bear', bear_label
         return 'neut', neut_label
 
+    # ── WGC CB demand signal ────────────────────────────────────────────
+    wgc_signal = 'neutral'
+    wgc_value  = None
+    wgc_label_detail = None
+
+    if os.path.exists(QUARTERLY_JSON_PATH):
+        try:
+            with open(QUARTERLY_JSON_PATH) as f:
+                wgc_rows = json.load(f)
+            wgc_rows.sort(key=lambda r: r.get('quarter', ''))
+            cb_vals = [r['central_banks'] for r in wgc_rows
+                       if r.get('central_banks') is not None]
+            if len(cb_vals) >= 4:
+                latest_q        = cb_vals[-1]
+                trailing_4q_avg = sum(cb_vals[-4:]) / 4
+                yoy_pct = None
+                if len(cb_vals) >= 5:
+                    yoy_pct = ((cb_vals[-1] - cb_vals[-5]) / abs(cb_vals[-5]) * 100
+                               if cb_vals[-5] != 0 else None)
+                if latest_q > trailing_4q_avg and (yoy_pct is None or yoy_pct > 0):
+                    wgc_signal = 'bullish'
+                elif latest_q < trailing_4q_avg * 0.8 and (yoy_pct is not None and yoy_pct < 0):
+                    wgc_signal = 'bearish'
+                else:
+                    wgc_signal = 'neutral'
+                latest_quarter_label = wgc_rows[-1].get('quarter', '')
+                wgc_value = round(latest_q, 1)
+                yoy_str = f'{yoy_pct:+.1f}% YoY' if yoy_pct is not None else 'N/A YoY'
+                wgc_label_detail = f'{latest_quarter_label}: {wgc_value}t ({yoy_str})'
+        except Exception:
+            pass  # leave neutral on any error
+
     signals = [
         ('Real Rate Trend (3M TIPS Δ)',      f'{tips_3m:+.2f}%',             *sig(tips_3m,      lambda v: v < -0.1,  lambda v: v > 0.1)),
         ('Rate Model Premium',               f'{premium:+.1f}%',              *sig(premium,      lambda v: v < 10,    lambda v: v > 20)),
@@ -551,7 +621,10 @@ def build_snapshot():
         ('Gold Cobasis',                     f'${cobasis:+.2f}/oz',           *sig(cobasis,      lambda v: v > 0,     lambda v: v < -2, 'Backwardation', 'Deep Contango')),
         ('Miner Confirmation (GDX/GLD)',     f'{gdxgld:.4f}',                 *sig(gdxgld - gdxgld_3yavg, lambda v: v > 0, lambda v: v < -0.01, 'Above 3Y avg', 'Below 3Y avg')),
         ('Gold/Silver Ratio',                f'{gsr:.1f}',                    *sig(gsr,          lambda v: v < 70,    lambda v: v > 80, 'Below 70 (normal)', 'Above 80 (late-cycle)')),
-        ('CB Demand (latest quarter)',       f'{cot_net:,} net longs',        'neut', 'See WGC data'),
+        ('CB Demand (latest quarter)',
+         wgc_label_detail or 'No WGC data',
+         'bull' if wgc_signal == 'bullish' else ('bear' if wgc_signal == 'bearish' else 'neut'),
+         'WGC Gold Demand Trends'),
         ('ETF Flow Trend',                   '—',                             'neut', 'See dashboard'),
     ]
 
@@ -1058,6 +1131,141 @@ def parse_wgc_pdf(pdf_bytes):
     return rows, warnings
 
 
+def parse_wgc_xlsx(xlsx_bytes):
+    """
+    Parse a WGC Gold Demand Trends XLSX file (GDT_Tables_Q*_EN.xlsx).
+
+    Returns: (rows, warnings)
+      rows     — list of dicts, one per quarter, keys:
+                   quarter (str, e.g. '2025-Q4'),
+                   central_banks (float, tonnes),
+                   etf_flows (float, tonnes),
+                   jewellery (float, tonnes),
+                   bar_coin (float, tonnes),
+                   total_demand (float, tonnes),
+                   gold_price (float, USD/oz)
+      warnings — list of strings (non-fatal issues)
+    """
+    import re
+    import openpyxl
+
+    warnings = []
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)
+    except Exception as e:
+        raise ValueError(f"Cannot open XLSX: {e}")
+
+    sheet_name = 'Gold Balance'
+    if sheet_name not in wb.sheetnames:
+        raise ValueError(
+            f"Sheet '{sheet_name}' not found. Available: {wb.sheetnames}. "
+            "Make sure this is a WGC Gold Demand Trends XLSX file."
+        )
+
+    ws = wb[sheet_name]
+    all_rows = list(ws.iter_rows(values_only=True))
+
+    # Row 5 (index 4) contains headers including quarter labels
+    header_row = all_rows[4]
+
+    # Map column index -> normalized quarter string ('YYYY-QN')
+    def normalize_quarter(label):
+        m = re.match(r"Q(\d)'(\d{2})$", str(label).strip())
+        if not m:
+            return None
+        qnum, yr2 = m.group(1), m.group(2)
+        year = 2000 + int(yr2)
+        return f"{year}-Q{qnum}"
+
+    quarter_col_map = {}  # col_index -> 'YYYY-QN'
+    for col_idx, val in enumerate(header_row):
+        if val is None:
+            continue
+        normed = normalize_quarter(val)
+        if normed:
+            quarter_col_map[col_idx] = normed
+
+    if not quarter_col_map:
+        raise ValueError(
+            "No quarterly columns found in row 5. "
+            f"Sample row 5 values: {[v for v in header_row if v is not None][:10]}"
+        )
+
+    # Row definitions (0-indexed): label -> row_index
+    ROW_MAP = {
+        'central_banks': 24,   # Row 25
+        'etf_flows':     23,   # Row 24
+        'jewellery':     11,   # Row 12
+        'bar_coin':      19,   # Row 20
+        'total_demand':  10,   # Row 11
+        'gold_price':    27,   # Row 28
+    }
+
+    def safe_float(val):
+        if val is None or val == '' or (isinstance(val, str) and val.strip() in ('', '-', '▲', '▼')):
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    # Extract data row for each metric
+    metric_data = {}
+    for metric, row_idx in ROW_MAP.items():
+        if row_idx >= len(all_rows):
+            warnings.append(f"Row {row_idx + 1} not found for {metric}")
+            metric_data[metric] = {}
+            continue
+        data_row = all_rows[row_idx]
+        metric_data[metric] = {
+            quarter_col_map[col_idx]: safe_float(data_row[col_idx])
+            for col_idx in quarter_col_map
+            if col_idx < len(data_row)
+        }
+
+    # Validate row labels match expectations
+    label_checks = {
+        24: 'Central Bank',
+        23: 'ETF',
+        11: 'Jewellery',
+        19: 'Bar and Coin',
+        10: 'Total Demand',
+        27: 'LBMA',
+    }
+    for row_idx, expected_substr in label_checks.items():
+        label = str(all_rows[row_idx][1] or '').strip()
+        if expected_substr.lower() not in label.lower():
+            warnings.append(
+                f"Row {row_idx + 1} label mismatch: expected '{expected_substr}', "
+                f"got '{label}' — data may be misaligned"
+            )
+
+    # Build output rows, sorted by quarter
+    all_quarters = sorted(set(metric_data['central_banks'].keys()))
+
+    # Only include quarters where we have at least CB demand data
+    rows_out = []
+    for q in all_quarters:
+        cb = metric_data['central_banks'].get(q)
+        if cb is None:
+            continue
+        rows_out.append({
+            'quarter':       q,
+            'central_banks': cb,
+            'etf_flows':     metric_data['etf_flows'].get(q),
+            'jewellery':     metric_data['jewellery'].get(q),
+            'bar_coin':      metric_data['bar_coin'].get(q),
+            'total_demand':  metric_data['total_demand'].get(q),
+            'gold_price':    metric_data['gold_price'].get(q),
+        })
+
+    if not rows_out:
+        raise ValueError("Parsed 0 data rows from XLSX. Check file format.")
+
+    return rows_out, warnings
+
+
 @app.route('/api/upload-pdf', methods=['POST'])
 def upload_pdf():
     """Accept a WGC Gold Demand Trends PDF, extract quarterly data, return rows as JSON."""
@@ -1075,6 +1283,21 @@ def upload_pdf():
         return jsonify({'rows': rows, 'warnings': warnings})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-xlsx', methods=['POST'])
+def upload_xlsx():
+    """Accept a WGC Gold Demand Trends XLSX, parse it, return rows as JSON for confirmation."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    xlsx_bytes = request.files['file'].read()
+    try:
+        rows, warnings = parse_wgc_xlsx(xlsx_bytes)
+    except (ValueError, Exception) as e:
+        return jsonify({'error': str(e),
+                        'hint': 'Make sure this is a WGC Gold Demand Trends XLSX file '
+                                '(e.g. GDT_Tables_Q425_EN.xlsx)'}), 422
+    return jsonify({'rows': rows, 'warnings': warnings, 'count': len(rows)})
 
 
 @app.route('/api/upload-pdf-debug', methods=['POST'])
