@@ -612,5 +612,227 @@ def snapshot():
     return Response(html, mimetype='text/html')
 
 
+
+import threading
+
+# ── /api/analysis — in-memory cache + rate limiting ────────────────────────
+_analysis_cache = {}   # "{chart}_{YYYY-MM-DD}" -> {analysis, generated_at, stored_at, expires_at}
+_rate_data      = {}   # ip -> {min_count, min_ts, hr_count, hr_ts}
+_rate_lock      = threading.Lock()
+ANALYSIS_TTL    = 3600  # 1-hour cache
+
+VALID_CHARTS = {'chart1', 'chart2', 'chart3', 'chart4', 'chart5', 'chart6', 'chart7'}
+
+CHART_PROMPTS = {
+    'chart1': (
+        "You are a concise gold market analyst. Analyse the dual-regime regression data below.\n\n"
+        "Regime 1 (2006–2021): real TIPS yields were the dominant driver of gold (R² ≈ 0.88). "
+        "Regime 2 (2022–present): the Fed raised real rates to 15-year highs yet gold surged — "
+        "the historical relationship broke down.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the regime-break premium magnitude tells us today about who is driving gold.\n"
+        "2. Whether the premium signals overextension, structural repricing, or something in between.\n"
+        "3. The single most important risk that could cause regime reversion, and what would instead sustain it.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart2': (
+        "You are a concise gold market analyst. Analyse the US dollar (DXY) vs gold relationship from the data below.\n\n"
+        "Historically gold and the dollar move inversely. Sustained deviations from this pattern are analytically significant.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the 90-day DXY trend implies for near-term gold price pressure.\n"
+        "2. Whether gold is tracking or diverging from the historical DXY relationship, and what that divergence (if any) means.\n"
+        "3. The DXY level or catalyst that would most materially alter the gold outlook.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart3': (
+        "You are a concise gold market analyst. Analyse the CFTC Commitments of Traders (COT) speculative positioning data below.\n\n"
+        "Non-commercial (managed money) positioning in gold futures is a classic contrarian signal. "
+        "Extreme long crowding often precedes pullbacks; extreme short positioning often precedes rallies.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the net long level and 5-year percentile tell us about speculative sentiment right now.\n"
+        "2. Whether the current positioning is a contrarian red flag, a sign of under-positioning, or neutral.\n"
+        "3. What a significant positioning change in either direction would imply for price action.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart4': (
+        "You are a concise gold market analyst. Analyse the gold cobasis (spot minus nearby futures) data below.\n\n"
+        "A positive cobasis (backwardation) means immediate delivery trades at a premium to futures — "
+        "a signal of physical scarcity and genuine demand. Deep contango suggests futures-driven speculation or abundant supply.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the current cobasis reading says about the balance between physical and paper gold demand.\n"
+        "2. Historical context for this reading and what cobasis regimes have tended to precede.\n"
+        "3. How to weight this signal alongside the macro environment (rates, dollar, central bank demand).\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart5': (
+        "You are a concise gold market analyst. Analyse the gold/silver ratio data below.\n\n"
+        "The ratio measures how many ounces of silver buy one ounce of gold. "
+        "Below 70 is historically normal; above 80 signals late-cycle stress, risk-off conditions, or industrial demand weakness. "
+        "Silver typically outperforms gold in strong commodity bull markets.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the current ratio level implies about the relative pricing of the two metals.\n"
+        "2. What the ratio says about the stage and character of the current gold cycle.\n"
+        "3. Whether silver's relative position represents a structural lag, an opportunity, or a warning signal.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart6': (
+        "You are a concise gold market analyst. Analyse the GDX/GLD ratio (gold miners vs physical gold ETF) data below.\n\n"
+        "When miners outperform physical gold (ratio rising above the 3-year average), it signals institutional conviction — "
+        "miners provide leveraged exposure and sophisticated investors tend to rotate into them only when they believe "
+        "the gold move is durable. Miner underperformance during a gold rally is a divergence worth noting.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. What the GDX/GLD ratio vs the 3-year average tells us about institutional conviction in the gold move.\n"
+        "2. Whether miner performance is confirming or diverging from gold price, and what that divergence implies.\n"
+        "3. The key operational or valuation factors that could drive a re-rating of miners vs physical.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+    'chart7': (
+        "You are a concise gold market analyst. Analyse the composite bull market scorecard below.\n\n"
+        "The scorecard tracks 7 quantifiable signals across real rates, dollar strength, speculative positioning, "
+        "physical demand (cobasis), miner confirmation, and the gold/silver ratio. "
+        "Two signals — central bank demand and ETF flow trend — are qualitative and currently held neutral.\n\n"
+        "DATA:\n{context_json}\n\n"
+        "Write exactly 3 paragraphs (no headers, no bullet points):\n"
+        "1. The overall composite reading and which 2–3 individual signals are most analytically meaningful right now.\n"
+        "2. The key tension or contradiction in the signals (e.g., bearish positioning vs bullish price, or rate headwinds vs CB demand).\n"
+        "3. Which signal change would most shift the composite score, and what event or data point would trigger it.\n\n"
+        "Be direct, cite specific numbers from the data. No financial advice. ≤350 words."
+    ),
+}
+
+CHART_CONTEXT_KEYS = {
+    'chart1': lambda s: {
+        'currentGoldPrice':      s.get('currentGoldPrice'),
+        'currentTIPS':           s.get('currentTIPS'),
+        'regimeBreakPremium':    s.get('regimeBreakPremium'),
+        'regimeBreakPremiumPct': s.get('regimeBreakPremiumPct'),
+        'regime1':               s.get('regime1'),
+        'regime2':               s.get('regime2'),
+        'lastDate':              s.get('lastDate'),
+    },
+    'chart2': lambda s: {
+        'currentGoldPrice': s.get('currentGoldPrice'),
+        'realRates': s.get('realRates'),
+        'scorecard_dxy': (s.get('scorecard') or {}).get('signals', {}).get('dxyTrend'),
+    },
+    'chart3': lambda s: {
+        'cot': s.get('cot'),
+        'scorecard_cot': (s.get('scorecard') or {}).get('signals', {}).get('cotPercentile'),
+    },
+    'chart4': lambda s: {
+        'cobasis':           (s.get('ratios') or {}).get('cobasis'),
+        'currentGoldPrice':  s.get('currentGoldPrice'),
+        'scorecard_cobasis': (s.get('scorecard') or {}).get('signals', {}).get('cobasis'),
+    },
+    'chart5': lambda s: {
+        'goldSilverRatio':    (s.get('ratios') or {}).get('goldSilverRatio'),
+        'scorecard_gsr':      (s.get('scorecard') or {}).get('signals', {}).get('goldSilverRatio'),
+    },
+    'chart6': lambda s: {
+        'gdxGld':        (s.get('ratios') or {}).get('gdxGld'),
+        'gdxGld3yAvg':   (s.get('ratios') or {}).get('gdxGld3yAvg'),
+        'scorecard_gdx': (s.get('scorecard') or {}).get('signals', {}).get('gdxGldVs3yAvg'),
+    },
+    'chart7': lambda s: {
+        'scorecard':        s.get('scorecard'),
+        'currentGoldPrice': s.get('currentGoldPrice'),
+        'currentTIPS':      s.get('currentTIPS'),
+        'realRates':        s.get('realRates'),
+    },
+}
+
+
+def _check_rate_limit(ip):
+    """Returns True if the request is allowed, False if rate-limited."""
+    now = time.time()
+    with _rate_lock:
+        d = _rate_data.get(ip, {'min_count': 0, 'min_ts': now, 'hr_count': 0, 'hr_ts': now})
+        if now - d['min_ts'] >= 60:
+            d['min_count'] = 0
+            d['min_ts'] = now
+        if now - d['hr_ts'] >= 3600:
+            d['hr_count'] = 0
+            d['hr_ts'] = now
+        if d['min_count'] >= 10 or d['hr_count'] >= 50:
+            return False
+        d['min_count'] += 1
+        d['hr_count'] += 1
+        _rate_data[ip] = d
+        return True
+
+
+@app.route('/api/analysis', methods=['POST'])
+def analysis():
+    """Generate AI analysis for a given chart using cached market data."""
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    if not _check_rate_limit(ip):
+        return jsonify({'error': 'Rate limit exceeded. Please wait before requesting again.'}), 429
+
+    body = request.get_json(silent=True) or {}
+    chart_id = str(body.get('chart', '')).strip().lower()
+    if chart_id not in VALID_CHARTS:
+        return jsonify({'error': f'Unknown chart id: {chart_id!r}'}), 400
+
+    today     = datetime.utcnow().strftime('%Y-%m-%d')
+    cache_key = f'{chart_id}_{today}'
+    now       = time.time()
+
+    # Serve from cache if valid
+    cached = _analysis_cache.get(cache_key)
+    if cached and now < cached['expires_at']:
+        return jsonify({
+            'analysis':    cached['analysis'],
+            'generatedAt': cached['generated_at'],
+            'cached':      True,
+            'cacheAge':    round(now - cached['stored_at']),
+        })
+
+    # Load status.json for context
+    try:
+        with open(STATUS_JSON_PATH) as f:
+            status = json.load(f)
+    except Exception as e:
+        return jsonify({'error': f'Market data unavailable: {e}'}), 503
+
+    context     = CHART_CONTEXT_KEYS[chart_id](status)
+    prompt_text = CHART_PROMPTS[chart_id].format(context_json=json.dumps(context, indent=2))
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'error': 'Analysis service not configured (missing API key)'}), 503
+
+    try:
+        from anthropic import Anthropic as _Anthropic
+        client = _Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-20250514',
+            max_tokens=600,
+            temperature=0.3,
+            messages=[{'role': 'user', 'content': prompt_text}],
+        )
+        analysis_text = msg.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'error': f'Analysis generation failed: {e}'}), 503
+
+    generated_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    _analysis_cache[cache_key] = {
+        'analysis':    analysis_text,
+        'generated_at': generated_at,
+        'stored_at':   now,
+        'expires_at':  now + ANALYSIS_TTL,
+    }
+    return jsonify({
+        'analysis':    analysis_text,
+        'generatedAt': generated_at,
+        'cached':      False,
+        'cacheAge':    0,
+    })
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=False)

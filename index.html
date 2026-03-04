@@ -783,6 +783,137 @@
     flex-direction: column;
     gap: 3px;
   }
+
+  /* AI Analysis Panels */
+  .ai-panel {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+  }
+  .ai-panel-dormant {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .ai-panel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  .ai-panel-btn:hover {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    background: var(--bg-hover);
+  }
+  .ai-panel-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Loading skeleton */
+  .ai-panel-loading {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 4px 0 2px;
+  }
+  .ai-skel-header {
+    height: 13px;
+    width: 130px;
+    background: var(--bg-hover);
+    border-radius: 3px;
+    animation: ai-shimmer 1.5s ease-in-out infinite;
+  }
+  .ai-skel-line {
+    height: 11px;
+    background: var(--bg-hover);
+    border-radius: 3px;
+    animation: ai-shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes ai-shimmer {
+    0%   { opacity: 0.35; }
+    50%  { opacity: 0.7;  }
+    100% { opacity: 0.35; }
+  }
+
+  /* Loaded state */
+  .ai-panel-loaded { }
+  .ai-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .ai-panel-label {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent-blue);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .ai-panel-meta {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+  }
+  .ai-panel-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.85;
+    white-space: pre-wrap;
+  }
+
+  /* Error state */
+  .ai-panel-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ai-error-msg {
+    font-size: 12px;
+    color: var(--negative);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Mobile: collapse analysis text behind a toggle */
+  @media (max-width: 768px) {
+    .ai-panel-hint { display: none; }
+    .ai-panel-text { display: none; }
+    .ai-panel-text.ai-expanded { display: block; }
+    .ai-collapse-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 7px 0;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      text-align: left;
+      margin-top: 6px;
+    }
+  }
+  @media (min-width: 769px) {
+    .ai-panel-text { display: block !important; }
+    .ai-collapse-toggle { display: none !important; }
+  }
     </style>
 </head>
 <body>
@@ -1203,6 +1334,32 @@
 
             </div>
           </div>
+          <div class="ai-panel" id="ai-panel-chart1">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart1')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart1"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart1"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart1"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart1')" style="margin-left:10px;">Retry</button>
+            </div>
+          </div>
         
           <!-- ===================================================
                Chart 2 — DXY vs Gold
@@ -1249,6 +1406,32 @@
               </div>
             </div>
           </div>
+          <div class="ai-panel" id="ai-panel-chart2">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart2')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart2"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart2"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart2"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart2')" style="margin-left:10px;">Retry</button>
+            </div>
+          </div>
         
           <!-- ===================================================
                Chart 3 — CFTC COT
@@ -1282,6 +1465,32 @@
               </div>
             </div>
           </div>
+          <div class="ai-panel" id="ai-panel-chart3">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart3')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart3"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart3"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart3"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart3')" style="margin-left:10px;">Retry</button>
+            </div>
+          </div>
         
           <!-- ===================================================
                Chart 4 — Gold Cobasis
@@ -1309,6 +1518,32 @@
                   <div class="stat-value" id="c4-state">—</div>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="ai-panel" id="ai-panel-chart4">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart4')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart4"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart4"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart4"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart4')" style="margin-left:10px;">Retry</button>
             </div>
           </div>
         
@@ -1349,6 +1584,32 @@
                   <div class="stat-value" id="c5-pct">—</div>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="ai-panel" id="ai-panel-chart5">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart5')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart5"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart5"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart5"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart5')" style="margin-left:10px;">Retry</button>
             </div>
           </div>
         
@@ -1393,6 +1654,32 @@
                   <div class="stat-value" id="c6-vsbench">—</div>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="ai-panel" id="ai-panel-chart6">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart6')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart6"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart6"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart6"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart6')" style="margin-left:10px;">Retry</button>
             </div>
           </div>
         
@@ -1455,6 +1742,32 @@
               <div class="scorecard-grid" id="scorecard-grid">
                 <!-- Signal cards injected by buildScorecard() -->
               </div>
+            </div>
+          </div>
+          <div class="ai-panel" id="ai-panel-chart7">
+            <div class="ai-panel-dormant">
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart7')">&#9670; AI Analysis</button>
+              <span class="ai-panel-hint">claude-sonnet-4-20250514 &middot; click to generate &middot; 1hr cache</span>
+            </div>
+            <div class="ai-panel-loading" style="display:none;">
+              <div class="ai-skel-header"></div>
+              <div class="ai-skel-line" style="width:92%;"></div>
+              <div class="ai-skel-line" style="width:78%;"></div>
+              <div class="ai-skel-line" style="width:86%;"></div>
+              <div class="ai-skel-line" style="width:64%;"></div>
+              <div class="ai-skel-line" style="width:90%;"></div>
+              <div class="ai-skel-line" style="width:55%;"></div>
+            </div>
+            <div class="ai-panel-loaded" style="display:none;">
+              <div class="ai-panel-header">
+                <span class="ai-panel-label">&#9670; AI Analysis</span>
+                <span class="ai-panel-meta" id="ai-meta-chart7"></span>
+              </div>
+              <div class="ai-panel-text" id="ai-text-chart7"></div>
+            </div>
+            <div class="ai-panel-error" style="display:none;">
+              <span class="ai-error-msg" id="ai-error-chart7"></span>
+              <button class="ai-panel-btn" onclick="requestAnalysis('chart7')" style="margin-left:10px;">Retry</button>
             </div>
           </div>
         

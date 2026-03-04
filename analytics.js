@@ -1824,3 +1824,103 @@ function setStatCard(id, value, cssClass) {
 function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+
+// ── AI Analysis Panels ──────────────────────────────────────────────────────
+
+/**
+ * Request AI analysis for a chart panel.
+ * States: dormant → loading → loaded | error
+ */
+function requestAnalysis(chartId) {
+  setAiPanelState(chartId, 'loading');
+
+  fetch('/api/analysis', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chart: chartId }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        setAiPanelState(chartId, 'error', data.error);
+      } else {
+        setAiPanelState(chartId, 'loaded', data);
+      }
+    })
+    .catch(err => {
+      setAiPanelState(chartId, 'error', err.message || 'Network error');
+    });
+}
+
+/**
+ * Update an AI panel's visible state.
+ * @param {string}  chartId  - e.g. 'chart1'
+ * @param {string}  state    - 'dormant' | 'loading' | 'loaded' | 'error'
+ * @param {*}       data     - for 'loaded': API response object; for 'error': string
+ */
+function setAiPanelState(chartId, state, data) {
+  const panel = document.getElementById('ai-panel-' + chartId);
+  if (!panel) return;
+
+  const dormant = panel.querySelector('.ai-panel-dormant');
+  const loading = panel.querySelector('.ai-panel-loading');
+  const loaded  = panel.querySelector('.ai-panel-loaded');
+  const error   = panel.querySelector('.ai-panel-error');
+
+  // Hide all
+  [dormant, loading, loaded, error].forEach(el => {
+    if (el) el.style.display = 'none';
+  });
+
+  if (state === 'loading') {
+    if (loading) loading.style.display = 'flex';
+
+  } else if (state === 'loaded') {
+    if (!loaded) return;
+    loaded.style.display = 'block';
+
+    const textEl = document.getElementById('ai-text-' + chartId);
+    const metaEl = document.getElementById('ai-meta-' + chartId);
+
+    if (textEl) textEl.textContent = data.analysis || '';
+
+    if (metaEl) {
+      const ts     = (data.generatedAt || '').replace('T', ' ').replace('Z', ' UTC');
+      const cachedSuffix = data.cached
+        ? ' · cached ' + (data.cacheAge > 60 ? Math.round(data.cacheAge / 60) + 'm ago' : 'just now')
+        : ' · just generated';
+      metaEl.textContent = ts + cachedSuffix;
+    }
+
+    // Mobile collapse/expand
+    if (textEl) {
+      const isMobile = window.innerWidth <= 768;
+      if (isMobile) {
+        textEl.classList.remove('ai-expanded');
+        // Only add toggle once
+        if (!loaded.querySelector('.ai-collapse-toggle')) {
+          const toggle = document.createElement('button');
+          toggle.className = 'ai-collapse-toggle';
+          toggle.textContent = 'Show analysis ▼';
+          toggle.onclick = function () {
+            const expanded = textEl.classList.toggle('ai-expanded');
+            toggle.textContent = expanded ? 'Hide analysis ▲' : 'Show analysis ▼';
+          };
+          loaded.querySelector('.ai-panel-header').insertAdjacentElement('afterend', toggle);
+        }
+      } else {
+        textEl.classList.add('ai-expanded');
+      }
+    }
+
+  } else if (state === 'error') {
+    if (error) error.style.display = 'flex';
+    const errEl = document.getElementById('ai-error-' + chartId);
+    if (errEl) errEl.textContent = typeof data === 'string' ? data : 'Analysis unavailable';
+
+  } else {
+    // dormant (default)
+    if (dormant) dormant.style.display = 'flex';
+  }
+}
