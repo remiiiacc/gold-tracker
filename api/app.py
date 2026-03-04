@@ -846,101 +846,215 @@ QUARTERLY_JSON_PATH = '/var/www/gold-tracker/data/quarterly.json'
 
 def parse_wgc_pdf(pdf_bytes):
     """Extract quarterly demand data from a WGC Gold Demand Trends PDF.
-    Returns (rows, warnings) where rows is a list of dicts with keys:
-    quarter, jewelry, barCoin, etfFlows, netPurchases, goldPrice."""
+
+    Handles two PDF layouts:
+    - Split-table: each data row is its own 1-row table (Q4/FY annual reports)
+    - Classic: one multi-row table with header in row 0 (quarterly reports)
+
+    Returns (rows, warnings).
+    """
     import re
 
-    def parse_quarter_header(text):
+    def parse_col_header(text):
+        """Return a 'YYYY-QN' key for quarter columns; None for everything else."""
         if not text:
             return None
         t = str(text).strip().replace('\n', ' ')
-        m = re.match(r"Q([1-4])['\s]?(\d{2})$", t)
+        # Skip change/pct/annual columns
+        tl = t.lower()
+        if any(x in tl for x in ['y/y', '%', 'change', 'annual', '△', '▲', '▼']):
+            return None
+        # Q4'24 / Q4'25 — ASCII or curly apostrophe
+        m = re.match(r"Q([1-4])[\'\u2018\u2019](\d{2})$", t)
         if m:
             return f"20{m.group(2)}-Q{m.group(1)}"
+        # Q4 2024
         m = re.match(r"Q([1-4])\s+(\d{4})$", t, re.I)
         if m:
             return f"{m.group(2)}-Q{m.group(1)}"
+        # 2024 Q4
         m = re.match(r"(\d{4})\s+Q([1-4])$", t, re.I)
         if m:
             return f"{m.group(1)}-Q{m.group(2)}"
         return None
 
+    # Row labels → internal field names
+    # 'bars' and 'medals' are sub-items used to derive barCoin when no direct barCoin row
     ROW_MAP = {
-        'jewellery': 'jewelry', 'jewelry': 'jewelry',
-        'bar & coin': 'barCoin', 'bar and coin': 'barCoin', 'physical bar': 'barCoin',
-        'etf': 'etfFlows', 'etf and similar': 'etfFlows',
-        'central bank': 'netPurchases', 'net purchases': 'netPurchases',
-        'gold price': 'goldPrice', 'lbma gold': 'goldPrice', 'average gold': 'goldPrice',
+        'jewellery consumption': 'jewelry',
+        'jewellery':             'jewelry',
+        'jewelry':               'jewelry',
+        'bar & coin':            'barCoin',
+        'bar and coin':          'barCoin',
+        'physical bar':          'barCoin',
+        'etf and similar':       'etfFlows',
+        'etf':                   'etfFlows',
+        'investment':            'investment',
+        'bars':                  'bars',
+        'medals imitation':      'medals',
+        'medals':                'medals',
+        'central bank':          'netPurchases',
+        'net purchases':         'netPurchases',
+        'lbma gold price':       'goldPrice',
+        'lbma gold':             'goldPrice',
+        'gold price':            'goldPrice',
+        'average gold':          'goldPrice',
     }
 
     def map_row_label(label):
-        lower = str(label).lower().strip()
-        for key, internal in ROW_MAP.items():
+        lower = str(label or '').lower().strip()
+        # Exact / prefix match first (avoids "etf and similar" → 'etf' misfire)
+        for key, field in ROW_MAP.items():
+            if lower == key or lower.startswith(key + ' ') or lower.startswith(key):
+                return field
+        # Substring fallback
+        for key, field in ROW_MAP.items():
             if key in lower:
-                return internal
+                return field
         return None
 
     def safe_float(val):
-        s = re.sub(r'[^\d.\-]', '', str(val).strip().replace(',', ''))
+        s = re.sub(r'[^\d.\-]', '', str(val or '').replace(',', '').strip())
         try:
-            return float(s) if s else None
+            return float(s) if s not in ('', '-') else None
         except ValueError:
             return None
 
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        all_tables = [t for page in pdf.pages for t in (page.extract_tables() or [])]
+        all_page_tables = [page.extract_tables() or [] for page in pdf.pages]
 
-    # Find demand table (has "Jewellery"/"Jewelry" row)
-    demand_table = next((t for t in all_tables
-                         if any('jewel' in str(r[0]).lower() for r in t if r and r[0])), None)
-    if demand_table is None:
-        return [], ['No demand statistics table found in PDF']
+    # ── Strategy 1: split-table layout (FY/Q4 annual reports) ────────────────
+    # On one page: a header table (≥1 quarterly cols) + many single-row data tables
+    best = {'col_map': {}, 'data': {}, 'score': 0}
 
-    # Parse quarter columns from header row
-    col_quarters = {i: parse_quarter_header(cell)
-                    for i, cell in enumerate(demand_table[0][1:], start=1)
-                    if parse_quarter_header(cell)}
-    if not col_quarters:
-        return [], ['Could not identify quarterly columns in demand table']
+    for page_tables in all_page_tables:
+        # Find the column map from whichever table on this page has the most quarter cols
+        col_map = {}
+        for table in page_tables:
+            if not table:
+                continue
+            candidate = {}
+            for ci, cell in enumerate(table[0]):
+                if ci == 0:
+                    continue
+                qkey = parse_col_header(str(cell or ''))
+                if qkey:
+                    candidate[ci] = qkey
+            if len(candidate) > len(col_map):
+                col_map = candidate
 
-    # Collect data per quarter
-    collected = {q: {} for q in col_quarters.values()}
-    for row in demand_table[1:]:
-        if not row or not row[0]:
+        if not col_map:
             continue
-        key = map_row_label(row[0])
-        if key:
-            for ci, quarter in col_quarters.items():
-                if ci < len(row):
-                    v = safe_float(row[ci])
+
+        min_col = max(col_map.keys()) + 1   # rows must be at least this wide
+
+        data = {}  # field -> {quarter_key: value}
+        for table in page_tables:
+            for row in (table or []):
+                if not row or not row[0]:
+                    continue
+                if len(row) < min_col:
+                    continue
+                field = map_row_label(str(row[0]))
+                if not field:
+                    continue
+                for ci, qkey in col_map.items():
+                    v = safe_float(row[ci] if ci < len(row) else None)
                     if v is not None:
-                        collected[quarter][key] = v
+                        data.setdefault(field, {})[qkey] = v
 
-    # Fallback: find gold price in a separate table
-    if not any('goldPrice' in v for v in collected.values()):
+        score = sum(1 for f in ['jewelry', 'investment', 'bars', 'netPurchases', 'goldPrice']
+                    if f in data)
+        if score > best['score']:
+            best = {'col_map': col_map, 'data': data, 'score': score}
+
+    # ── Strategy 2: classic multi-row table layout (quarterly reports) ────────
+    if best['score'] < 2:
+        all_tables = [t for pt in all_page_tables for t in pt]
+        # Find the first table that has "jewel" anywhere in col 0
         for table in all_tables:
-            flat = [str(r[0]).lower() for r in table if r and r[0]]
-            if any('gold price' in l or 'lbma' in l for l in flat):
-                price_cols = {i: parse_quarter_header(cell)
-                              for i, cell in enumerate(table[0][1:], start=1)
-                              if parse_quarter_header(cell)}
-                for row in table[1:]:
-                    if row and row[0] and ('price' in str(row[0]).lower() or 'lbma' in str(row[0]).lower()):
-                        for ci, q in price_cols.items():
-                            if ci < len(row) and q in collected:
-                                v = safe_float(row[ci])
-                                if v is not None:
-                                    collected[q]['goldPrice'] = v
-                break
+            if not any(table[0]):
+                continue
+            # Check if this table or a nearby row has quarter headers
+            col_map2 = {ci: parse_col_header(str(cell or ''))
+                        for ci, cell in enumerate(table[0][1:], start=1)
+                        if parse_col_header(str(cell or ''))}
+            if len(col_map2) < 2:
+                continue
+            if not any('jewel' in str(r[0] or '').lower() for r in table[1:] if r):
+                continue
+            # Found it
+            data2 = {}
+            for row in table[1:]:
+                if not row or not row[0]:
+                    continue
+                field = map_row_label(str(row[0]))
+                if not field:
+                    continue
+                for ci, qkey in col_map2.items():
+                    v = safe_float(row[ci] if ci < len(row) else None)
+                    if v is not None:
+                        data2.setdefault(field, {})[qkey] = v
+            score2 = sum(1 for f in ['jewelry', 'etfFlows', 'barCoin', 'netPurchases'] if f in data2)
+            if score2 > best['score']:
+                best = {'col_map': col_map2, 'data': data2, 'score': score2}
+            break
 
-    # Build output rows
-    required = ['jewelry', 'barCoin', 'etfFlows', 'netPurchases']
-    rows = [{'quarter': q, **{k: d.get(k) for k in ['jewelry', 'barCoin', 'etfFlows', 'netPurchases', 'goldPrice']}}
-            for q in sorted(collected) if all(k in (d := collected[q]) for k in required)]
+    col_map = best['col_map']
+    data    = best['data']
 
+    if not col_map:
+        return [], ['No quarterly columns found in PDF']
+    if not data:
+        return [], ['Quarterly columns found but no data rows extracted']
+
+    # ── Build output rows ─────────────────────────────────────────────────────
+    quarters = sorted(set(col_map.values()))
     warnings = []
+    rows = []
+
+    for q in quarters:
+        get = lambda f: data.get(f, {}).get(q)    # noqa: E731
+
+        jewelry      = get('jewelry')
+        barCoin      = get('barCoin')
+        etf          = get('etfFlows')
+        investment   = get('investment')
+        bars         = get('bars')
+        medals       = get('medals')
+        netPurchases = get('netPurchases')
+        goldPrice    = get('goldPrice')
+
+        # Derive barCoin from sub-items when no direct "bar & coin" row
+        if barCoin is None and bars is not None:
+            barCoin = round(bars + (medals or 0), 1)
+            if medals is None:
+                warnings.append(f'{q}: bar & coin taken from "Bars" only (medals not found)')
+
+        # Derive ETF from Investment − barCoin
+        if etf is None and investment is not None and barCoin is not None:
+            etf = round(investment - barCoin, 1)
+
+        if jewelry is None or barCoin is None or netPurchases is None:
+            continue
+
+        rows.append({
+            'quarter':      q,
+            'jewelry':      jewelry,
+            'barCoin':      barCoin,
+            'etfFlows':     etf,
+            'netPurchases': netPurchases,
+            'goldPrice':    goldPrice,
+        })
+
     if not rows:
-        warnings.append('Table found but no complete quarterly rows extracted.')
+        warnings.append('Data found but could not build complete rows '
+                        '(need jewelry, barCoin, and netPurchases for each quarter).')
+    elif any(r.get('barCoin') is not None and r.get('etfFlows') is not None
+             and r['barCoin'] == r.get('bars') for r in rows):
+        warnings.append('Note: bar & coin derived from Bars + Medals sub-items; '
+                        'official coins not shown separately in this report format.')
+
     return rows, warnings
 
 
@@ -959,6 +1073,33 @@ def upload_pdf():
             return jsonify({'error': 'Could not extract quarterly data from PDF. '
                                      'Make sure this is a WGC Gold Demand Trends report.'}), 422
         return jsonify({'rows': rows, 'warnings': warnings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/upload-pdf-debug', methods=['POST'])
+def upload_pdf_debug():
+    """Debug endpoint: return raw pdfplumber table extraction for diagnosis."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        f = request.files['file']
+        pdf_bytes = f.read()
+        result = {'pages': [], 'all_tables': []}
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            result['num_pages'] = len(pdf.pages)
+            for pi, page in enumerate(pdf.pages):
+                tables = page.extract_tables() or []
+                page_info = {'page': pi + 1, 'num_tables': len(tables), 'tables': []}
+                for ti, table in enumerate(tables):
+                    page_info['tables'].append({
+                        'table_index': ti,
+                        'rows': len(table),
+                        'cols': len(table[0]) if table else 0,
+                        'all_rows': table,
+                    })
+                result['pages'].append(page_info)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
