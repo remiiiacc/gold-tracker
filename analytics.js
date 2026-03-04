@@ -45,7 +45,6 @@ async function initMarketStructure() {
     buildChart6();
     buildChart7();
     buildScorecard();
-    buildSwissPanel();
 
     // Wire up sub-nav scroll anchors
     document.querySelectorAll('.analytics-subnav-btn').forEach(btn => {
@@ -1930,14 +1929,27 @@ function setAiPanelState(chartId, state, data) {
 }
 
 // =============================================================================
-// Swiss Trade Flows Panel (ms-chart9)
+// Swiss Trade Flows — standalone page
 // =============================================================================
 
-function buildSwissPanel() {
-  const raw    = analyticsState.swissTrade;
-  const loading = document.getElementById('swiss-loading');
-  const noData  = document.getElementById('swiss-no-data');
-  const content = document.getElementById('swiss-content');
+async function initSwissPage() {
+  const loading = document.getElementById('st-loading');
+  if (analyticsState.swissTrade) {
+    buildSwissPage();
+    return;
+  }
+  if (loading) loading.style.display = 'block';
+  try {
+    analyticsState.swissTrade = await fetch('/api/swiss-trade').then(r => r.json()).catch(() => null);
+  } catch (e) { /* ignore */ }
+  buildSwissPage();
+}
+
+function buildSwissPage() {
+  const raw     = analyticsState.swissTrade;
+  const loading = document.getElementById('st-loading');
+  const noData  = document.getElementById('st-no-data');
+  const content = document.getElementById('st-content');
 
   if (loading) loading.style.display = 'none';
 
@@ -1947,12 +1959,11 @@ function buildSwissPanel() {
     if (content) content.style.display = 'none';
     return;
   }
-
+  if (noData)  noData.style.display  = 'none';
   if (content) content.style.display = 'block';
 
-  // ── Derive signals client-side from raw data ───────────────────────────────
-  // Aggregate total imports per period
-  const totals = {};  // period → tonnes
+  // ── Aggregate ──────────────────────────────────────────────────────────────
+  const totals = {};
   const byPeriodCountry = {};
   rows.forEach(r => {
     totals[r.period] = (totals[r.period] || 0) + r.quantity_tonnes;
@@ -1961,64 +1972,60 @@ function buildSwissPanel() {
       (byPeriodCountry[r.period][r.country_name] || 0) + r.quantity_tonnes;
   });
 
-  const periods = Object.keys(totals).sort();
-  const values  = periods.map(p => totals[p]);
+  const periods      = Object.keys(totals).sort();
+  const values       = periods.map(p => totals[p]);
   const latestPeriod = periods[periods.length - 1];
   const latestVal    = values[values.length - 1];
 
-  // 3M rolling sum
-  const sum3m = values.slice(-3).reduce((a, b) => a + b, 0);
-  // 6M avg
-  const avg6m = values.slice(-6).reduce((a, b) => a + b, 0) / Math.min(6, values.length);
-  // YoY
+  const last3  = periods.slice(-3);
+  const prior3 = periods.slice(-6, -3);
+  const sum3m  = last3.reduce((a, p) => a + (totals[p] || 0), 0);
+  const avg6m  = values.slice(-6).reduce((a, b) => a + b, 0) / Math.min(6, values.length);
+  const avg3m  = sum3m / 3;
+
   let yoyPct = null;
   if (values.length >= 13) {
     const prev = values[values.length - 13];
     if (prev) yoyPct = ((values[values.length - 1] - prev) / prev) * 100;
   }
 
-  // Signal
   let signal = 'neutral';
   if (yoyPct !== null) {
-    if (sum3m > avg6m && yoyPct > 0) signal = 'bullish';
-    else if (sum3m < avg6m && yoyPct < 0) signal = 'bearish';
+    if (avg3m > avg6m && yoyPct > 0) signal = 'bullish';
+    else if (avg3m < avg6m && yoyPct < 0) signal = 'bearish';
   }
 
-  // Data lag
   let lagStr = '';
   if (latestPeriod) {
     const [yr, mo] = latestPeriod.split('-').map(Number);
-    const lastDay  = new Date(yr, mo, 0);
-    const lagDays  = Math.round((Date.now() - lastDay) / 86400000);
+    const lagDays  = Math.round((Date.now() - new Date(yr, mo, 0)) / 86400000);
     lagStr = `${lagDays}d data lag`;
   }
 
   // ── Badge ──────────────────────────────────────────────────────────────────
-  const badge = document.getElementById('swiss-signal-badge');
+  const badge = document.getElementById('st-signal-badge');
   if (badge) {
-    const cls   = signal === 'bullish' ? 'badge-bull' : signal === 'bearish' ? 'badge-bear' : 'badge-neutral';
-    const label = signal.charAt(0).toUpperCase() + signal.slice(1);
-    badge.textContent = label;
+    const cls = signal === 'bullish' ? 'badge-bull' : signal === 'bearish' ? 'badge-bear' : 'badge-neutral';
+    badge.textContent = signal.charAt(0).toUpperCase() + signal.slice(1);
     badge.className   = `badge ${cls}`;
   }
 
   // ── Signal reason ──────────────────────────────────────────────────────────
-  const reasonEl = document.getElementById('swiss-signal-reason');
+  const reasonEl = document.getElementById('st-signal-reason');
   if (reasonEl) {
-    const color = signal === 'bullish' ? 'var(--positive)' : signal === 'bearish' ? 'var(--negative)' : 'var(--text-muted)';
+    const color  = signal === 'bullish' ? 'var(--positive)' : signal === 'bearish' ? 'var(--negative)' : 'var(--text-muted)';
     reasonEl.style.borderLeftColor = color;
-    const basis = 'Import proxy (no exports data uploaded)';
     const yoyStr = yoyPct !== null ? `${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}% YoY` : 'YoY N/A';
-    reasonEl.textContent = `${basis} · 3M ${sum3m.toFixed(0)}t vs 6M avg ${avg6m.toFixed(0)}t · ${yoyStr}`;
+    reasonEl.textContent = `Swiss gold imports (BAZG tariff 7108.12) · 3M avg ${avg3m.toFixed(0)}t vs 6M avg ${avg6m.toFixed(0)}t · ${yoyStr}`;
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  set('swiss-stat-period',  latestPeriod || '—');
-  set('swiss-stat-lag',     lagStr);
-  set('swiss-stat-latest',  latestVal != null ? `${latestVal.toFixed(1)}t` : '—');
-  set('swiss-stat-3m',      `${sum3m.toFixed(1)}t`);
-  const yoyEl = document.getElementById('swiss-stat-yoy');
+  set('st-stat-period', latestPeriod || '—');
+  set('st-stat-lag',    lagStr);
+  set('st-stat-latest', latestVal != null ? `${latestVal.toFixed(1)}t` : '—');
+  set('st-stat-3m',     `${sum3m.toFixed(1)}t`);
+  const yoyEl = document.getElementById('st-stat-yoy');
   if (yoyEl) {
     if (yoyPct !== null) {
       yoyEl.textContent = `${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}%`;
@@ -2028,13 +2035,13 @@ function buildSwissPanel() {
     }
   }
 
-  // ── Monthly imports bar chart ──────────────────────────────────────────────
-  const ctx = document.getElementById('swiss-chart-imports');
+  // ── Bar chart ──────────────────────────────────────────────────────────────
+  const ctx = document.getElementById('st-chart-imports');
   if (ctx && analyticsState.charts.swissImports) {
     analyticsState.charts.swissImports.destroy();
+    analyticsState.charts.swissImports = null;
   }
   if (ctx) {
-    // Show last 48 months
     const showPeriods = periods.slice(-48);
     const showValues  = showPeriods.map(p => totals[p]);
     analyticsState.charts.swissImports = new Chart(ctx, {
@@ -2044,11 +2051,8 @@ function buildSwissPanel() {
         datasets: [{
           label: 'Swiss Gold Imports (t)',
           data: showValues,
-          backgroundColor: showValues.map((v, i) => {
-            if (i >= showPeriods.length - 3) return 'rgba(88, 166, 255, 0.85)';
-            return 'rgba(88, 166, 255, 0.45)';
-          }),
-          borderColor: 'rgba(88, 166, 255, 0.9)',
+          backgroundColor: showValues.map((_, i) =>
+            i >= showPeriods.length - 3 ? 'rgba(88,166,255,0.85)' : 'rgba(88,166,255,0.45)'),
           borderWidth: 0,
           borderRadius: 2,
         }]
@@ -2058,11 +2062,7 @@ function buildSwissPanel() {
         maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => `${ctx.parsed.y.toFixed(1)}t`,
-            }
-          }
+          tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(1)}t` } }
         },
         scales: {
           y: {
@@ -2072,41 +2072,55 @@ function buildSwissPanel() {
           },
           x: {
             grid: { display: false },
-            ticks: {
-              color: '#8b949e',
-              maxRotation: 45,
-              autoSkip: true,
-              maxTicksLimit: 16,
-            },
+            ticks: { color: '#8b949e', maxRotation: 45, autoSkip: true, maxTicksLimit: 16 },
           }
         }
       }
     });
   }
 
-  // ── Top countries table ────────────────────────────────────────────────────
-  const tableEl = document.getElementById('swiss-countries-table');
-  if (tableEl && byPeriodCountry[latestPeriod]) {
-    const countryData = byPeriodCountry[latestPeriod];
-    const sorted = Object.entries(countryData)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-    const maxVal = sorted[0] ? sorted[0][1] : 1;
+  // ── Country table — all countries active in last 3 periods ─────────────────
+  const countrySet = new Set();
+  last3.forEach(p => Object.keys(byPeriodCountry[p] || {}).forEach(c => countrySet.add(c)));
 
-    tableEl.innerHTML = sorted.map(([name, val]) => {
-      const pct = (val / maxVal * 100).toFixed(0);
-      const share = (val / latestVal * 100).toFixed(1);
-      return `
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-          <div style="width:130px;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
-          <div style="flex:1;background:var(--bg-secondary);border-radius:2px;height:8px;overflow:hidden;">
-            <div style="width:${pct}%;background:var(--accent-blue);height:100%;border-radius:2px;opacity:0.75;"></div>
+  const countryRows = Array.from(countrySet).map(country => {
+    const latestM  = (byPeriodCountry[latestPeriod] || {})[country] || 0;
+    const sum3mC   = last3.reduce((a, p)  => a + ((byPeriodCountry[p]  || {})[country] || 0), 0);
+    const prior3mC = prior3.reduce((a, p) => a + ((byPeriodCountry[p]  || {})[country] || 0), 0);
+    const chg3m    = prior3mC > 0 ? ((sum3mC - prior3mC) / prior3mC) * 100 : null;
+    const share    = latestVal > 0 ? (latestM / latestVal) * 100 : 0;
+    return { country, latestM, sum3mC, prior3mC, chg3m, share };
+  }).sort((a, b) => b.sum3mC - a.sum3mC);
+
+  const tbody = document.getElementById('st-countries-tbody');
+  if (tbody) {
+    const maxBar = countryRows[0]?.sum3mC || 1;
+    tbody.innerHTML = countryRows.map(r => {
+      const barPct = Math.round(r.sum3mC / maxBar * 100);
+      const chgStr = r.chg3m != null
+        ? `<span style="color:${r.chg3m > 5 ? 'var(--positive)' : r.chg3m < -5 ? 'var(--negative)' : 'var(--text-secondary)'};">${r.chg3m >= 0 ? '+' : ''}${r.chg3m.toFixed(1)}%</span>`
+        : '<span style="color:var(--text-muted);">—</span>';
+      return `<tr class="st-country-row">
+        <td style="padding:5px 8px;font-size:13px;">${r.country}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;">${r.latestM > 0 ? r.latestM.toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;">${r.sum3mC.toFixed(2)}</td>
+        <td style="padding:5px 8px;text-align:right;font-size:12px;">${chgStr}</td>
+        <td style="padding:5px 8px;text-align:right;font-size:12px;color:var(--text-muted);">${r.share.toFixed(1)}%</td>
+        <td style="padding:5px 8px;min-width:80px;">
+          <div style="background:var(--bg-secondary);border-radius:2px;height:6px;overflow:hidden;">
+            <div style="width:${barPct}%;background:var(--accent-blue);height:100%;border-radius:2px;opacity:0.7;"></div>
           </div>
-          <div style="width:50px;text-align:right;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);">${val.toFixed(1)}t</div>
-          <div style="width:40px;text-align:right;font-size:11px;color:var(--text-muted);">${share}%</div>
-        </div>`;
+        </td>
+      </tr>`;
     }).join('');
   }
+}
+
+function filterSwissCountries() {
+  const q = (document.getElementById('st-country-search')?.value || '').toLowerCase();
+  document.querySelectorAll('.st-country-row').forEach(row => {
+    row.style.display = row.querySelector('td')?.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
 }
 
 // ── Manual CSV upload ──────────────────────────────────────────────────────
@@ -2114,7 +2128,7 @@ async function handleSwissUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  const statusEl = document.getElementById('swiss-upload-status');
+  const statusEl = document.getElementById('st-upload-status');
   if (statusEl) {
     statusEl.style.display = 'block';
     statusEl.style.background = 'var(--bg-secondary)';
@@ -2137,10 +2151,9 @@ async function handleSwissUpload(event) {
       return;
     }
 
-    // Refresh Swiss data and rebuild panel
-    const fresh = await fetch('/api/swiss-trade').then(r2 => r2.json()).catch(() => null);
-    analyticsState.swissTrade = fresh;
-    buildSwissPanel();
+    // Refresh data and rebuild page
+    analyticsState.swissTrade = await fetch('/api/swiss-trade').then(r2 => r2.json()).catch(() => null);
+    buildSwissPage();
 
     if (statusEl) {
       statusEl.style.color = 'var(--positive)';
@@ -2153,6 +2166,5 @@ async function handleSwissUpload(event) {
     }
   }
 
-  // Clear file input so same file can be re-uploaded
   event.target.value = '';
 }

@@ -1007,6 +1007,7 @@
             <button class="tab" data-tab="countries">Countries</button>
             <button class="tab" data-tab="sources">Sources</button>
             <button class="tab" data-tab="market-structure" onclick="initMarketStructure()">Market Structure</button>
+            <button class="tab" data-tab="swiss-trade" onclick="initSwissPage()">Swiss Trade</button>
         </div>
 
         <!-- Overview Section -->
@@ -1317,7 +1318,6 @@
             <button class="analytics-subnav-btn" data-target="ms-chart6">GDX/GLD Ratio</button>
             <button class="analytics-subnav-btn" data-target="ms-chart7">Demand Decomp</button>
             <button class="analytics-subnav-btn" data-target="ms-chart8">Bull Market Scorecard</button>
-            <button class="analytics-subnav-btn" data-target="ms-chart9">Swiss Trade Flows</button>
           </div>
         
           <!-- API freshness badges -->
@@ -1851,74 +1851,6 @@
           </div>
         
           <!-- Swiss Trade Flows -->
-          <div class="chart-card chart-section-anchor" id="ms-chart9" style="margin-bottom:16px;">
-            <div class="chart-header">
-              <div>
-                <div class="chart-title">
-                  Swiss Gold Trade Flows
-                  <span id="swiss-signal-badge" class="badge" style="margin-left:8px;"></span>
-                </div>
-                <div class="chart-subtitle">Monthly imports by country (tariff 7108.12) — Swiss Federal Customs (BAZG) · proxy for physical CB/sovereign demand</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <button id="swiss-upload-btn" onclick="document.getElementById('swiss-import-file').click()"
-                  style="font-size:11px;padding:4px 10px;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer;">
-                  &#8593; Upload CSV
-                </button>
-                <input type="file" id="swiss-import-file" accept=".csv" style="display:none;" onchange="handleSwissUpload(event)">
-              </div>
-            </div>
-
-            <div class="chart-loading" id="swiss-loading">Loading data…</div>
-            <div id="swiss-no-data" style="display:none;padding:24px 0;color:var(--text-muted);font-size:13px;">
-              No Swiss import data yet.
-              Download the English CSV from
-              <a href="https://www.i14y.admin.ch/en/catalog/datasets/BAZG_GOLD_LAND/distributions" target="_blank" style="color:var(--accent-blue);">i14y.admin.ch</a>
-              then upload it with the button above.
-            </div>
-            <div id="swiss-content" style="display:none;">
-
-              <!-- Signal reason + stats row -->
-              <div id="swiss-signal-reason" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;padding:8px 10px;background:var(--bg-secondary);border-radius:4px;border-left:3px solid var(--border-color);" id="swiss-reason"></div>
-
-              <div class="stat-cards-row" style="margin-bottom:16px;">
-                <div class="stat-item">
-                  <div class="stat-label">Latest Period</div>
-                  <div class="stat-value accent" id="swiss-stat-period">—</div>
-                  <div class="stat-change" id="swiss-stat-lag" style="color:var(--text-muted);"></div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">Latest Month (t)</div>
-                  <div class="stat-value" id="swiss-stat-latest">—</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">3-Month Rolling (t)</div>
-                  <div class="stat-value" id="swiss-stat-3m">—</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">YoY Change</div>
-                  <div class="stat-value" id="swiss-stat-yoy">—</div>
-                </div>
-              </div>
-
-              <!-- Monthly import bar chart -->
-              <div class="chart-container" style="margin-bottom:20px;">
-                <canvas id="swiss-chart-imports"></canvas>
-              </div>
-
-              <!-- Top countries table -->
-              <div style="margin-top:4px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">
-                  Top source countries — latest period
-                </div>
-                <div id="swiss-countries-table"></div>
-              </div>
-
-              <!-- Upload status -->
-              <div id="swiss-upload-status" style="display:none;margin-top:12px;font-size:12px;padding:8px 10px;border-radius:4px;"></div>
-            </div>
-          </div>
-
           <!-- Data sources footer -->
           <div class="analytics-sources">
             <span>Sources:</span>
@@ -1933,6 +1865,79 @@
             <span>Swiss Federal Customs (BAZG)</span>
           </div>
         
+        </section>
+
+        <!-- Swiss Trade Flows Page -->
+        <section class="content-section" id="swiss-trade">
+          <div class="table-container">
+            <div class="table-header">
+              <div class="table-title">
+                Swiss Gold Trade Flows
+                <span id="st-signal-badge" class="badge" style="margin-left:8px;font-size:11px;"></span>
+              </div>
+              <div class="table-actions">
+                <div class="search-box">
+                  <input type="text" id="st-country-search" placeholder="Search countries..." oninput="filterSwissCountries()">
+                </div>
+                <button class="btn" onclick="document.getElementById('st-import-file').click()" style="font-size:12px;padding:5px 12px;">&#8593; Upload CSV</button>
+                <input type="file" id="st-import-file" accept=".csv" style="display:none;" onchange="handleSwissUpload(event)">
+              </div>
+            </div>
+
+            <div class="chart-loading" id="st-loading">Loading data…</div>
+
+            <div id="st-no-data" style="display:none;padding:24px 0;color:var(--text-muted);font-size:13px;">
+              No Swiss import data yet. Download the English CSV from
+              <a href="https://www.i14y.admin.ch/en/catalog/datasets/BAZG_GOLD_LAND/distributions" target="_blank" style="color:var(--accent-blue);">i14y.admin.ch</a>
+              then upload it with the button above.
+            </div>
+
+            <div id="st-content" style="display:none;">
+              <div id="st-signal-reason" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;padding:8px 10px;background:var(--bg-secondary);border-radius:4px;border-left:3px solid var(--border-color);"></div>
+
+              <div class="stat-cards-row" style="margin-bottom:16px;">
+                <div class="stat-item">
+                  <div class="stat-label">Latest Period</div>
+                  <div class="stat-value accent" id="st-stat-period">—</div>
+                  <div class="stat-change" id="st-stat-lag" style="color:var(--text-muted);"></div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Latest Month (t)</div>
+                  <div class="stat-value" id="st-stat-latest">—</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">3-Month Rolling (t)</div>
+                  <div class="stat-value" id="st-stat-3m">—</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">YoY Change</div>
+                  <div class="stat-value" id="st-stat-yoy">—</div>
+                </div>
+              </div>
+
+              <div class="chart-container" style="margin-bottom:24px;height:200px;">
+                <canvas id="st-chart-imports"></canvas>
+              </div>
+
+              <div class="table-scroll">
+                <table id="st-countries-table" style="width:100%;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">Country</th>
+                      <th style="text-align:right;">Latest (t)</th>
+                      <th style="text-align:right;">3M Total (t)</th>
+                      <th style="text-align:right;">3M vs Prior 3M</th>
+                      <th style="text-align:right;">Share %</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="st-countries-tbody"></tbody>
+                </table>
+              </div>
+
+              <div id="st-upload-status" style="display:none;margin-top:12px;font-size:12px;padding:8px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;"></div>
+            </div>
+          </div>
         </section>
 
     </main>
@@ -3224,6 +3229,6 @@
     updateGoldPrice();
     setInterval(updateGoldPrice, 5 * 60 * 1000); // refresh every 5 minutes
     </script>
-    <script src="/analytics.js?v=3"></script>
+    <script src="/analytics.js?v=4"></script>
 </body>
 </html>
