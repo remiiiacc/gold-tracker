@@ -834,5 +834,34 @@ def analysis():
         'cacheAge':    0,
     })
 
+
+
+# ---------------------------------------------------------------------------
+# QUARTERLY_JSON_PATH — data store for WGC demand data (written by /api/save-data)
+# ---------------------------------------------------------------------------
+QUARTERLY_JSON_PATH = '/var/www/gold-tracker/data/quarterly.json'
+
+
+@app.route('/api/save-data', methods=['POST'])
+def save_data():
+    """Accept a full quarterlyData JSON payload from the browser and persist it to disk.
+    Called after the user confirms a CSV upload on the frontend."""
+    try:
+        data = request.get_json(force=True)
+        required = ['netPurchases', 'holdings', 'goldPrice', 'jewelry', 'barCoin', 'etfFlows']
+        if not data or not all(k in data for k in required):
+            return jsonify({'error': 'Missing required data keys: ' + str(required)}), 400
+        # Sanity: at least one quarter in each series
+        if any(not data[k] for k in required):
+            return jsonify({'error': 'One or more data series is empty'}), 400
+        os.makedirs(os.path.dirname(QUARTERLY_JSON_PATH), exist_ok=True)
+        with open(QUARTERLY_JSON_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
+        n = len(data['jewelry'])
+        return jsonify({'ok': True, 'quarters': n,
+                        'latestQuarter': sorted(data['jewelry'].keys())[-1]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=False)

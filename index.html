@@ -914,6 +914,46 @@
     .ai-panel-text { display: block !important; }
     .ai-collapse-toggle { display: none !important; }
   }
+    /* ETF Momentum Legend */
+    .etf-legend-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        margin-bottom: 4px;
+    }
+    .etf-legend-swatch {
+        display: inline-block;
+        width: 20px;
+        height: 2px;
+        background: #79c0ff;
+        border-top: 2px dashed #79c0ff;
+        vertical-align: middle;
+    }
+
+    /* Upload card */
+    .upload-card {
+        border: 1px dashed var(--border-light) !important;
+    }
+    .upload-preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .upload-preview-table th,
+    .upload-preview-table td {
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+    }
+    .upload-preview-table th {
+        color: var(--text-muted);
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.4px;
+    }
     </style>
 </head>
 <body>
@@ -923,7 +963,7 @@
                 <div class="logo-text">Gold Tracker <span>Central Bank Reserves & Demand</span></div>
             </div>
             <div class="header-meta">
-                <span><span class="status-dot"></span>Q3 2025 Data</span>
+                <span><span class="status-dot"></span><span id="header-data-label">Q3 2025 Data</span></span>
                 <span>Source: WGC</span>
                 <span><a href="/snapshot" style="color:var(--accent);text-decoration:none;font-size:11px;" title="AI-readable plain-text snapshot of all signals">&#x1F4CA; Data Snapshot</a></span>
             </div>
@@ -934,13 +974,13 @@
         <div class="stats-row">
             <div class="stat-item">
                 <div class="stat-label">Global CB Holdings</div>
-                <div class="stat-value">39,099t</div>
-                <div class="stat-change positive">+220t Q3</div>
+                <div class="stat-value" id="stat-cb-holdings">39,099t</div>
+                <div class="stat-change positive" id="stat-cb-holdings-change">+220t Q3</div>
             </div>
             <div class="stat-item">
                 <div class="stat-label">YTD Purchases</div>
-                <div class="stat-value">634t</div>
-                <div class="stat-change positive">Q1-Q3 2025</div>
+                <div class="stat-value" id="stat-ytd-purchases">634t</div>
+                <div class="stat-change positive" id="stat-ytd-change">Q1-Q3 2025</div>
             </div>
             <div class="stat-item">
                 <div class="stat-label">Gold Price <span id="gold-as-of" style="font-size:10px;color:var(--text-muted);font-family:JetBrains Mono,monospace;"></span></div>
@@ -948,9 +988,15 @@
                 <div class="stat-change" id="gold-price-change">+40% YoY</div>
             </div>
             <div class="stat-item">
-                <div class="stat-label">Top Buyer Q3</div>
-                <div class="stat-value">Poland</div>
-                <div class="stat-change">~42t</div>
+                <div class="stat-label">Top Buyer</div>
+                <div class="stat-value" id="stat-top-buyer">Poland</div>
+                <div class="stat-change" id="stat-top-buyer-change">~42t</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">ETF Flow Momentum</div>
+                <div class="stat-value" id="etf-stat-latest" style="font-size:17px;">—</div>
+                <div class="stat-change" id="etf-stat-avg" style="color:var(--text-muted);font-size:11px;">4Q avg: —</div>
+                <div class="stat-change" id="etf-stat-momentum" style="font-size:11px;">—</div>
             </div>
         </div>
 
@@ -1060,6 +1106,17 @@
                     </div>
                     <div class="chart-container">
                         <canvas id="etfChart"></canvas>
+                    </div>
+                    <div class="etf-legend-row">
+                        <span class="etf-legend-swatch"></span>
+                        <span style="font-size:11px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">4Q Rolling Average</span>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <div style="font-size:12px;font-weight:600;color:var(--text-primary);font-family:'JetBrains Mono',monospace;margin-bottom:3px;">Flow Momentum (Rate of Change)</div>
+                        <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-bottom:6px;">A falling value here means buyers are becoming less enthusiastic — even if flows remain positive</div>
+                        <div class="chart-container" style="height:160px;">
+                            <canvas id="etfMomentumChart"></canvas>
+                        </div>
                     </div>
                 </div>
                 <div class="chart-card">
@@ -1222,8 +1279,31 @@
                 <div class="source-card">
                     <div class="source-title">Methodology</div>
                     <div class="source-desc">Data updated quarterly following WGC Gold Demand Trends reports. Holdings in metric tonnes.</div>
-                    <span class="source-link">Last update: Q3 2025</span>
+                    <span class="source-link" id="last-update-label">Last update: Q3 2025</span>
                 </div>
+            </div>
+
+            <!-- Data Upload Card -->
+            <div class="source-card upload-card" style="margin-top:16px;">
+                <div class="source-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <span>&#128196; Upload WGC Quarterly Data</span>
+                    <button class="btn" onclick="downloadCurrentData()" style="font-size:11px;padding:4px 10px;">&#8595; Download Current Dataset</button>
+                </div>
+                <div class="source-desc" style="margin-top:6px;">
+                    Upload a CSV from gold.org or a manually structured CSV to add new quarterly data.<br>
+                    Accepted columns: <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">Quarter, Jewelry, Bar_Coin, ETF_Flows, Central_Banks, Gold_Price</code><br>
+                    Quarter formats accepted: <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">2025-Q4</code> &nbsp;or&nbsp; <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">Q4 2025</code> &nbsp;or&nbsp; <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">2025Q4</code>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <label class="btn" style="cursor:pointer;font-size:12px;padding:5px 12px;">
+                        &#128194; Choose CSV File
+                        <input type="file" id="uploadInput" accept=".csv" style="display:none;" onchange="handleUpload(event)">
+                    </label>
+                    <span id="upload-filename" style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">No file selected</span>
+                </div>
+                <div id="upload-error" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(248,81,73,0.1);border:1px solid var(--negative);border-radius:5px;color:var(--negative);font-size:12px;font-family:'JetBrains Mono',monospace;white-space:pre-wrap;"></div>
+                <div id="upload-preview" style="display:none;margin-top:14px;"></div>
+                <div id="upload-success" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(63,185,80,0.1);border:1px solid var(--positive);border-radius:6px;color:var(--positive);font-size:12px;font-family:'JetBrains Mono',monospace;"></div>
             </div>
         </section>
 
@@ -1793,106 +1873,7 @@
         // ===========================================
         // DATA - 15 YEARS (2010-2025)
         // ===========================================
-        const quarterlyData = {
-            netPurchases: {
-                '2010-Q1': -67, '2010-Q2': -15, '2010-Q3': 22, '2010-Q4': 90,
-                '2011-Q1': 129, '2011-Q2': 66, '2011-Q3': 142, '2011-Q4': 109,
-                '2012-Q1': 116, '2012-Q2': 164, '2012-Q3': 112, '2012-Q4': 145,
-                '2013-Q1': 131, '2013-Q2': 71, '2013-Q3': 112, '2013-Q4': 75,
-                '2014-Q1': 122, '2014-Q2': 118, '2014-Q3': 94, '2014-Q4': 150,
-                '2015-Q1': 133, '2015-Q2': 137, '2015-Q3': 175, '2015-Q4': 167,
-                '2016-Q1': 109, '2016-Q2': 77, '2016-Q3': 114, '2016-Q4': 114,
-                '2017-Q1': 82, '2017-Q2': 94, '2017-Q3': 111, '2017-Q4': 136,
-                '2018-Q1': 87, '2018-Q2': 89, '2018-Q3': 175, '2018-Q4': 271,
-                '2019-Q1': 145, '2019-Q2': 224, '2019-Q3': 156, '2019-Q4': 109,
-                '2020-Q1': 109, '2020-Q2': 64, '2020-Q3': 12, '2020-Q4': 68,
-                '2021-Q1': 95, '2021-Q2': 199, '2021-Q3': 91, '2021-Q4': 30,
-                '2022-Q1': 84, '2022-Q2': 186, '2022-Q3': 459, '2022-Q4': 378,
-                '2023-Q1': 228, '2023-Q2': 175, '2023-Q3': 337, '2023-Q4': 221,
-                '2024-Q1': 290, '2024-Q2': 183, '2024-Q3': 186, '2024-Q4': 333,
-                '2025-Q1': 244, '2025-Q2': 166, '2025-Q3': 220
-            },
-            holdings: {
-                '2020-Q1': 34850, '2020-Q2': 34914, '2020-Q3': 34926, '2020-Q4': 34994,
-                '2021-Q1': 35089, '2021-Q2': 35288, '2021-Q3': 35379, '2021-Q4': 35409,
-                '2022-Q1': 35493, '2022-Q2': 35679, '2022-Q3': 36138, '2022-Q4': 36516,
-                '2023-Q1': 36744, '2023-Q2': 36919, '2023-Q3': 37256, '2023-Q4': 37477,
-                '2024-Q1': 37767, '2024-Q2': 37950, '2024-Q3': 38136, '2024-Q4': 38469,
-                '2025-Q1': 38713, '2025-Q2': 38879, '2025-Q3': 39099
-            },
-            goldPrice: {
-                '2010-Q1': 1110, '2010-Q2': 1197, '2010-Q3': 1227, '2010-Q4': 1367,
-                '2011-Q1': 1387, '2011-Q2': 1506, '2011-Q3': 1700, '2011-Q4': 1688,
-                '2012-Q1': 1691, '2012-Q2': 1610, '2012-Q3': 1652, '2012-Q4': 1722,
-                '2013-Q1': 1632, '2013-Q2': 1415, '2013-Q3': 1326, '2013-Q4': 1276,
-                '2014-Q1': 1293, '2014-Q2': 1288, '2014-Q3': 1282, '2014-Q4': 1201,
-                '2015-Q1': 1219, '2015-Q2': 1193, '2015-Q3': 1124, '2015-Q4': 1104,
-                '2016-Q1': 1183, '2016-Q2': 1260, '2016-Q3': 1335, '2016-Q4': 1218,
-                '2017-Q1': 1220, '2017-Q2': 1257, '2017-Q3': 1278, '2017-Q4': 1275,
-                '2018-Q1': 1329, '2018-Q2': 1306, '2018-Q3': 1213, '2018-Q4': 1228,
-                '2019-Q1': 1304, '2019-Q2': 1310, '2019-Q3': 1472, '2019-Q4': 1481,
-                '2020-Q1': 1583, '2020-Q2': 1711, '2020-Q3': 1909, '2020-Q4': 1874,
-                '2021-Q1': 1794, '2021-Q2': 1816, '2021-Q3': 1790, '2021-Q4': 1795,
-                '2022-Q1': 1877, '2022-Q2': 1871, '2022-Q3': 1729, '2022-Q4': 1726,
-                '2023-Q1': 1890, '2023-Q2': 1976, '2023-Q3': 1928, '2023-Q4': 1971,
-                '2024-Q1': 2070, '2024-Q2': 2338, '2024-Q3': 2474, '2024-Q4': 2663,
-                '2025-Q1': 2860, '2025-Q2': 3100, '2025-Q3': 3457
-            },
-            jewelry: {
-                '2010-Q1': 519, '2010-Q2': 414, '2010-Q3': 487, '2010-Q4': 652,
-                '2011-Q1': 558, '2011-Q2': 442, '2011-Q3': 466, '2011-Q4': 499,
-                '2012-Q1': 497, '2012-Q2': 418, '2012-Q3': 449, '2012-Q4': 589,
-                '2013-Q1': 551, '2013-Q2': 575, '2013-Q3': 539, '2013-Q4': 648,
-                '2014-Q1': 595, '2014-Q2': 510, '2014-Q3': 534, '2014-Q4': 600,
-                '2015-Q1': 601, '2015-Q2': 513, '2015-Q3': 632, '2015-Q4': 658,
-                '2016-Q1': 482, '2016-Q2': 444, '2016-Q3': 493, '2016-Q4': 618,
-                '2017-Q1': 481, '2017-Q2': 480, '2017-Q3': 479, '2017-Q4': 648,
-                '2018-Q1': 508, '2018-Q2': 500, '2018-Q3': 536, '2018-Q4': 599,
-                '2019-Q1': 535, '2019-Q2': 531, '2019-Q3': 494, '2019-Q4': 584,
-                '2020-Q1': 326, '2020-Q2': 251, '2020-Q3': 333, '2020-Q4': 515,
-                '2021-Q1': 477, '2021-Q2': 390, '2021-Q3': 443, '2021-Q4': 713,
-                '2022-Q1': 474, '2022-Q2': 453, '2022-Q3': 523, '2022-Q4': 629,
-                '2023-Q1': 478, '2023-Q2': 476, '2023-Q3': 516, '2023-Q4': 616,
-                '2024-Q1': 479, '2024-Q2': 411, '2024-Q3': 459, '2024-Q4': 527,
-                '2025-Q1': 380, '2025-Q2': 391, '2025-Q3': 371
-            },
-            barCoin: {
-                '2010-Q1': 238, '2010-Q2': 254, '2010-Q3': 329, '2010-Q4': 365,
-                '2011-Q1': 366, '2011-Q2': 310, '2011-Q3': 390, '2011-Q4': 366,
-                '2012-Q1': 328, '2012-Q2': 275, '2012-Q3': 295, '2012-Q4': 360,
-                '2013-Q1': 377, '2013-Q2': 508, '2013-Q3': 386, '2013-Q4': 380,
-                '2014-Q1': 283, '2014-Q2': 235, '2014-Q3': 245, '2014-Q4': 257,
-                '2015-Q1': 254, '2015-Q2': 200, '2015-Q3': 295, '2015-Q4': 289,
-                '2016-Q1': 339, '2016-Q2': 218, '2016-Q3': 284, '2016-Q4': 329,
-                '2017-Q1': 289, '2017-Q2': 240, '2017-Q3': 222, '2017-Q4': 282,
-                '2018-Q1': 254, '2018-Q2': 218, '2018-Q3': 194, '2018-Q4': 236,
-                '2019-Q1': 257, '2019-Q2': 217, '2019-Q3': 260, '2019-Q4': 267,
-                '2020-Q1': 242, '2020-Q2': 222, '2020-Q3': 295, '2020-Q4': 273,
-                '2021-Q1': 340, '2021-Q2': 245, '2021-Q3': 262, '2021-Q4': 318,
-                '2022-Q1': 284, '2022-Q2': 245, '2022-Q3': 271, '2022-Q4': 340,
-                '2023-Q1': 302, '2023-Q2': 277, '2023-Q3': 296, '2023-Q4': 312,
-                '2024-Q1': 312, '2024-Q2': 261, '2024-Q3': 269, '2024-Q4': 344,
-                '2025-Q1': 325, '2025-Q2': 313, '2025-Q3': 316
-            },
-            etfFlows: {
-                '2010-Q1': 5, '2010-Q2': 291, '2010-Q3': 50, '2010-Q4': -2,
-                '2011-Q1': -56, '2011-Q2': 51, '2011-Q3': 77, '2011-Q4': 82,
-                '2012-Q1': 51, '2012-Q2': 52, '2012-Q3': 136, '2012-Q4': 88,
-                '2013-Q1': -177, '2013-Q2': -402, '2013-Q3': -119, '2013-Q4': -181,
-                '2014-Q1': -4, '2014-Q2': -40, '2014-Q3': -41, '2014-Q4': -72,
-                '2015-Q1': -26, '2015-Q2': -23, '2015-Q3': -66, '2015-Q4': -133,
-                '2016-Q1': 342, '2016-Q2': 236, '2016-Q3': -38, '2016-Q4': -193,
-                '2017-Q1': 74, '2017-Q2': 56, '2017-Q3': 19, '2017-Q4': -95,
-                '2018-Q1': -33, '2018-Q2': -57, '2018-Q3': -103, '2018-Q4': 69,
-                '2019-Q1': 40, '2019-Q2': 67, '2019-Q3': 256, '2019-Q4': 26,
-                '2020-Q1': 298, '2020-Q2': 434, '2020-Q3': 274, '2020-Q4': -130,
-                '2021-Q1': -178, '2021-Q2': 40, '2021-Q3': -27, '2021-Q4': -44,
-                '2022-Q1': 269, '2022-Q2': -47, '2022-Q3': -244, '2022-Q4': -110,
-                '2023-Q1': 52, '2023-Q2': -21, '2023-Q3': -139, '2023-Q4': -97,
-                '2024-Q1': -114, '2024-Q2': -7, '2024-Q3': 95, '2024-Q4': 19,
-                '2025-Q1': 227, '2025-Q2': 170, '2025-Q3': 222
-            }
-        };
+        let quarterlyData = null; // async-loaded from /data/quarterly.json
 
         // Full quarterly data for key buying countries (2018-2025)
         const countryQuarterlyData = {
@@ -2017,7 +1998,7 @@
 
         // Chart instances
         let quarterlyPurchasesChart, topBuyersChartInstance, priceVsPurchasesChart;
-        let jewelryChartInstance, barCoinChartInstance, etfChartInstance, demandPieChartInstance;
+        let jewelryChartInstance, barCoinChartInstance, etfChartInstance, etfMomentumChartInstance, demandPieChartInstance;
         let historicalChartInstance;
 
         // Chart.js defaults for navy theme
@@ -2028,7 +2009,18 @@
         // ===========================================
         // INITIALIZATION
         // ===========================================
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Load quarterly demand data from JSON file (externalized from hardcoded HTML)
+            try {
+                const r = await fetch('/data/quarterly.json');
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                quarterlyData = await r.json();
+            } catch(e) {
+                document.querySelector('.stats-row').insertAdjacentHTML('afterend',
+                    '<div style="padding:12px;background:rgba(248,81,73,0.1);border:1px solid var(--negative);border-radius:6px;color:var(--negative);font-size:12px;font-family:JetBrains Mono,monospace;margin-bottom:16px;">' +
+                    'Failed to load quarterly data: ' + e.message + '</div>');
+                return;
+            }
             initializeTabs();
             createQuarterlyPurchasesChart();
             createTopBuyersChart();
@@ -2036,12 +2028,15 @@
             createJewelryChart();
             createBarCoinChart();
             createEtfChart();
+            createEtfMomentumChart();
             createDemandPieChart();
             populateDemandTable();
             createHistoricalChart();
             populateHistoricalTable(40, 'all', 'quarterly');
             populateCountriesTable();
             initializeFilters();
+            updateEtfMomentumCard();
+            updateHeaderStatCards();
         });
 
         function initializeTabs() {
@@ -2282,19 +2277,173 @@
             barCoinChartInstance.update();
         }
 
+        // ─── ETF Momentum Utility ────────────────────────────────────────────────
+        /**
+         * Computes the 4-quarter rolling average of ETF flows and its quarter-on-quarter
+         * change (the "second derivative"). The second derivative is the key signal:
+         * when it turns negative while flows are still positive, it means buyer enthusiasm
+         * is fading BEFORE it shows up in the raw inflow numbers — an early warning.
+         *
+         * Validation against spec example [40,55,70,80,65,50,30,10]:
+         *   Q4 avg: 61.25 | Q5 avg: 67.5 deriv: +6.25
+         *   Q6 avg: 66.25 deriv: -1.25 | Q7 avg: 56.25 deriv: -10.0 | Q8 avg: 38.75 deriv: -17.5
+         *
+         * @param {number[]} flows  ETF flow values in chronological order
+         * @returns {{ rollingAvg: (number|null)[], secondDeriv: (number|null)[] }}
+         */
+        function computeEtfMomentum(flows) {
+            const n = flows.length;
+            const rollingAvg  = new Array(n).fill(null);
+            const secondDeriv = new Array(n).fill(null);
+            // 4Q rolling average — available from index 3 onwards (need 4 data points)
+            for (let i = 3; i < n; i++) {
+                rollingAvg[i] = (flows[i] + flows[i-1] + flows[i-2] + flows[i-3]) / 4;
+            }
+            // Second derivative = change in rolling average — available from index 4 onwards
+            for (let i = 4; i < n; i++) {
+                if (rollingAvg[i] !== null && rollingAvg[i-1] !== null) {
+                    secondDeriv[i] = rollingAvg[i] - rollingAvg[i-1];
+                }
+            }
+            return { rollingAvg, secondDeriv };
+        }
+
+        /** Returns annotation objects for the ETF chart marking quarters where
+         *  momentum first turned negative while flows were still positive.
+         *  These are the "early warning" quarters. */
+        function buildEtfAnnotations(quarters, flows, secondDeriv) {
+            const annotations = {};
+            for (let i = 1; i < quarters.length; i++) {
+                const d2     = secondDeriv[i];
+                const d2prev = secondDeriv[i - 1];
+                const flow   = flows[i];
+                // Early warning: first negative 2nd derivative during a positive flow streak
+                if (d2 !== null && d2 < 0 &&
+                    d2prev !== null && d2prev >= 0 &&
+                    flow > 0) {
+                    annotations['warn_' + i] = {
+                        type: 'point',
+                        xValue: quarters[i],
+                        yValue: flow + Math.max(15, Math.abs(flow) * 0.1),
+                        radius: 5,
+                        backgroundColor: '#d29922',
+                        borderColor: '#d29922',
+                        borderWidth: 2,
+                        label: {
+                            display: true,
+                            content: '⚠ Momentum peak',
+                            color: '#d29922',
+                            font: { size: 9, family: "'JetBrains Mono', monospace" },
+                            position: 'end',
+                            yAdjust: -12,
+                        }
+                    };
+                }
+            }
+            return annotations;
+        }
+
+        /** Momentum status from second derivative value. */
+        function getMomentumStatus(d2) {
+            if (d2 === null) return { label: '—', arrow: '', cls: '', isWarning: false };
+            if (d2 > 0)     return { label: 'Accelerating', arrow: '▲', cls: 'positive', isWarning: false };
+            if (d2 >= -5)   return { label: 'Slowing',      arrow: '→', cls: '',          isWarning: true  };
+            return              { label: 'Decelerating', arrow: '▼', cls: 'negative', isWarning: false };
+        }
+
         function createEtfChart() {
             const ctx = document.getElementById('etfChart').getContext('2d');
-            const quarters = Object.keys(quarterlyData.etfFlows).slice(-63);
-            const data = quarters.map(q => quarterlyData.etfFlows[q]);
+            const quarters = Object.keys(quarterlyData.etfFlows).sort().slice(-63);
+            const flows     = quarters.map(q => quarterlyData.etfFlows[q]);
+            const { rollingAvg, secondDeriv } = computeEtfMomentum(flows);
 
             etfChartInstance = new Chart(ctx, {
+                data: {
+                    labels: quarters,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'ETF Flows (t)',
+                            data: flows,
+                            backgroundColor: flows.map(v => v >= 0 ? 'rgba(63,185,80,0.6)' : 'rgba(248,81,73,0.6)'),
+                            borderColor:     flows.map(v => v >= 0 ? '#3fb950' : '#f85149'),
+                            borderWidth: 1, borderRadius: 1, order: 2,
+                        },
+                        {
+                            type: 'line',
+                            label: '4Q Rolling Average',
+                            data: rollingAvg,
+                            borderColor: '#79c0ff',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2.5,
+                            borderDash: [5, 4],
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            pointHoverBackgroundColor: '#79c0ff',
+                            tension: 0.3,
+                            spanGaps: false,
+                            order: 1,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        annotation: {
+                            annotations: buildEtfAnnotations(quarters, flows, secondDeriv)
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: ctx => 'Quarter: ' + ctx[0].label,
+                                label: item => {
+                                    const i   = item.dataIndex;
+                                    const raw = item.raw;
+                                    if (raw === null) return null;
+                                    if (item.datasetIndex === 0) {
+                                        return 'ETF Flow: ' + (raw >= 0 ? '+' : '') + raw + 't';
+                                    }
+                                    return '4Q Rolling Avg: ' + (raw >= 0 ? '+' : '') + raw.toFixed(1) + 't';
+                                },
+                                afterBody: items => {
+                                    const i   = items[0].dataIndex;
+                                    const d2  = secondDeriv[i];
+                                    if (d2 === null) return [];
+                                    const st  = getMomentumStatus(d2);
+                                    const sign = d2 >= 0 ? '+' : '';
+                                    return ['Momentum: ' + sign + d2.toFixed(1) + 't ' + st.arrow + ' ' + st.label];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { grid: { color: '#2d3a4a' }, ticks: { callback: v => v + 't' } },
+                        x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } }
+                    }
+                }
+            });
+        }
+
+        function createEtfMomentumChart() {
+            const ctx = document.getElementById('etfMomentumChart').getContext('2d');
+            const quarters = Object.keys(quarterlyData.etfFlows).sort().slice(-63);
+            const flows     = quarters.map(q => quarterlyData.etfFlows[q]);
+            const { secondDeriv } = computeEtfMomentum(flows);
+
+            etfMomentumChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: quarters,
                     datasets: [{
-                        data: data,
-                        backgroundColor: data.map(v => v >= 0 ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)'),
-                        borderColor: data.map(v => v >= 0 ? '#3fb950' : '#f85149'),
+                        label: 'Flow Momentum (2nd Derivative)',
+                        data: secondDeriv,
+                        backgroundColor: secondDeriv.map(v =>
+                            v === null ? 'transparent' :
+                            v >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(210,153,34,0.7)'),
+                        borderColor: secondDeriv.map(v =>
+                            v === null ? 'transparent' :
+                            v >= 0 ? '#3fb950' : '#d29922'),
                         borderWidth: 1,
                         borderRadius: 1,
                     }]
@@ -2302,23 +2451,425 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: {
+                        legend: { display: false },
+                        annotation: {
+                            annotations: {
+                                // Amber shaded region for negative momentum
+                                negativeZone: {
+                                    type: 'box',
+                                    yMin: -Infinity,
+                                    yMax: 0,
+                                    backgroundColor: 'rgba(210,153,34,0.05)',
+                                    borderWidth: 0,
+                                    drawTime: 'beforeDatasetsDraw',
+                                },
+                                zeroLine: {
+                                    type: 'line',
+                                    yMin: 0, yMax: 0,
+                                    borderColor: '#3d4f63',
+                                    borderWidth: 1,
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: ctx => 'Quarter: ' + ctx[0].label,
+                                label: item => {
+                                    const v = item.raw;
+                                    if (v === null) return 'Momentum: n/a (need 5 quarters)';
+                                    const st = getMomentumStatus(v);
+                                    return 'Momentum: ' + (v >= 0 ? '+' : '') + v.toFixed(1) + 't ' + st.arrow + ' ' + st.label;
+                                }
+                            }
+                        }
+                    },
                     scales: {
-                        y: { grid: { color: '#2d3a4a' }, ticks: { callback: v => `${v}t` } },
-                        x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } }
+                        y: {
+                            grid: { color: '#2d3a4a' },
+                            ticks: { callback: v => (v >= 0 ? '+' : '') + v + 't', font: { size: 10 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }
+                        }
                     }
                 }
             });
         }
 
         function updateEtfChart(numQuarters) {
-            const quarters = Object.keys(quarterlyData.etfFlows).slice(-numQuarters);
-            const data = quarters.map(q => quarterlyData.etfFlows[q]);
-            etfChartInstance.data.labels = quarters;
-            etfChartInstance.data.datasets[0].data = data;
-            etfChartInstance.data.datasets[0].backgroundColor = data.map(v => v >= 0 ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)');
-            etfChartInstance.data.datasets[0].borderColor = data.map(v => v >= 0 ? '#3fb950' : '#f85149');
+            const quarters  = Object.keys(quarterlyData.etfFlows).sort().slice(-numQuarters);
+            const flows     = quarters.map(q => quarterlyData.etfFlows[q]);
+            const { rollingAvg, secondDeriv } = computeEtfMomentum(flows);
+
+            // Update main chart
+            etfChartInstance.data.labels                          = quarters;
+            etfChartInstance.data.datasets[0].data               = flows;
+            etfChartInstance.data.datasets[0].backgroundColor     = flows.map(v => v >= 0 ? 'rgba(63,185,80,0.6)' : 'rgba(248,81,73,0.6)');
+            etfChartInstance.data.datasets[0].borderColor         = flows.map(v => v >= 0 ? '#3fb950' : '#f85149');
+            etfChartInstance.data.datasets[1].data               = rollingAvg;
+            // Re-build annotations with updated data
+            etfChartInstance.options.plugins.annotation.annotations =
+                buildEtfAnnotations(quarters, flows, secondDeriv);
             etfChartInstance.update();
+
+            // Sync momentum sub-chart
+            if (etfMomentumChartInstance) {
+                etfMomentumChartInstance.data.labels                     = quarters;
+                etfMomentumChartInstance.data.datasets[0].data           = secondDeriv;
+                etfMomentumChartInstance.data.datasets[0].backgroundColor = secondDeriv.map(v =>
+                    v === null ? 'transparent' : v >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(210,153,34,0.7)');
+                etfMomentumChartInstance.data.datasets[0].borderColor    = secondDeriv.map(v =>
+                    v === null ? 'transparent' : v >= 0 ? '#3fb950' : '#d29922');
+                etfMomentumChartInstance.update();
+            }
+        }
+
+        /** Update the ETF Flow Momentum stat card with live data. */
+        function updateEtfMomentumCard() {
+            const keys   = Object.keys(quarterlyData.etfFlows).sort();
+            const flows  = keys.map(q => quarterlyData.etfFlows[q]);
+            const { rollingAvg, secondDeriv } = computeEtfMomentum(flows);
+            const n      = flows.length;
+            const latestFlow = flows[n - 1];
+            const latestAvg  = rollingAvg[n - 1];
+            const latestD2   = secondDeriv[n - 1];
+
+            const latestEl = document.getElementById('etf-stat-latest');
+            const avgEl    = document.getElementById('etf-stat-avg');
+            const momEl    = document.getElementById('etf-stat-momentum');
+            if (!latestEl) return;
+
+            latestEl.textContent = (latestFlow >= 0 ? '+' : '') + latestFlow + 't';
+            latestEl.className = 'stat-value ' + (latestFlow > 0 ? 'positive' : latestFlow < 0 ? 'negative' : '');
+            latestEl.style.fontSize = '17px';
+
+            avgEl.textContent  = '4Q avg: ' + (latestAvg !== null
+                ? (latestAvg >= 0 ? '+' : '') + latestAvg.toFixed(1) + 't' : '—');
+
+            const st = getMomentumStatus(latestD2);
+            const sign = latestD2 !== null ? (latestD2 >= 0 ? '+' : '') : '';
+            momEl.textContent = latestD2 !== null
+                ? sign + latestD2.toFixed(1) + 't ' + st.arrow + ' ' + st.label
+                : '—';
+            momEl.className = 'stat-change ' + st.cls;
+            if (st.isWarning) momEl.style.color = 'var(--warning)';
+            else momEl.style.color = '';
+        }
+
+        /** Update header stat cards from live quarterlyData (called after data load/upload). */
+        function updateHeaderStatCards() {
+            const holdingKeys = Object.keys(quarterlyData.holdings).sort();
+            const purchaseKeys = Object.keys(quarterlyData.netPurchases).sort();
+            const latestQ = holdingKeys[holdingKeys.length - 1] || '';
+            const latestHoldings = quarterlyData.holdings[latestQ];
+            const latestPurchase = quarterlyData.netPurchases[latestQ];
+            const latestYear = latestQ.slice(0, 4);
+            const ytd = purchaseKeys
+                .filter(q => q.startsWith(latestYear))
+                .reduce((s, q) => s + (quarterlyData.netPurchases[q] || 0), 0);
+            const latestQLabel = latestQ.replace('-', ' ').replace('Q', 'Q');
+
+            const cbEl  = document.getElementById('stat-cb-holdings');
+            const ytdEl = document.getElementById('stat-ytd-purchases');
+            const cbChg = document.getElementById('stat-cb-holdings-change');
+            const ytdChg = document.getElementById('stat-ytd-change');
+            const lblEl = document.getElementById('header-data-label');
+            const lastUpdateEl = document.getElementById('last-update-label');
+
+            if (cbEl)  cbEl.textContent  = latestHoldings ? latestHoldings.toLocaleString() + 't' : '—';
+            if (cbChg) cbChg.textContent = latestPurchase
+                ? (latestPurchase >= 0 ? '+' : '') + latestPurchase + 't ' + latestQLabel : '';
+            if (ytdEl) ytdEl.textContent = ytd ? ytd.toLocaleString() + 't' : '—';
+            if (ytdChg) ytdChg.textContent = 'Jan–' + latestQLabel;
+            if (lblEl) lblEl.textContent  = latestQ + ' Data';
+            if (lastUpdateEl) lastUpdateEl.textContent = 'Last update: ' + latestQ;
+        }
+
+        // ─── refreshAllCharts: called after CSV data upload ──────────────────────
+        function refreshAllCharts() {
+            // Destroy all chart instances before recreating
+            [etfChartInstance, etfMomentumChartInstance, jewelryChartInstance,
+             barCoinChartInstance, demandPieChartInstance,
+             quarterlyPurchasesChart, priceVsPurchasesChart, historicalChartInstance
+            ].forEach(c => { try { if(c) c.destroy(); } catch(_) {} });
+            etfChartInstance = null; etfMomentumChartInstance = null;
+            jewelryChartInstance = null; barCoinChartInstance = null;
+            demandPieChartInstance = null; quarterlyPurchasesChart = null;
+            priceVsPurchasesChart = null; historicalChartInstance = null;
+
+            createQuarterlyPurchasesChart();
+            createPriceVsPurchasesChart();
+            createJewelryChart();
+            createBarCoinChart();
+            createEtfChart();
+            createEtfMomentumChart();
+            createDemandPieChart();
+            populateDemandTable();
+            createHistoricalChart();
+            populateHistoricalTable(40, 'all', 'quarterly');
+            updateEtfMomentumCard();
+            updateHeaderStatCards();
+            initializeFilters();
+        }
+
+        // ─── CSV Upload Logic ────────────────────────────────────────────────────
+
+        /** Normalise quarter strings to "YYYY-QN" format.
+         *  Accepts: "2025-Q4", "Q4 2025", "2025Q4", "2025 Q4" */
+        function normalizeQuarterKey(raw) {
+            const s = String(raw).trim();
+            // Already canonical: 2025-Q4
+            let m = s.match(/^(\d{4})-Q([1-4])$/i);
+            if (m) return m[1] + '-Q' + m[2];
+            // Q4 2025
+            m = s.match(/^Q([1-4])\s+(\d{4})$/i);
+            if (m) return m[2] + '-Q' + m[1];
+            // 2025Q4 or 2025 Q4
+            m = s.match(/^(\d{4})\s*Q([1-4])$/i);
+            if (m) return m[1] + '-Q' + m[2];
+            return null;
+        }
+
+        /** Column name mapping: WGC export variants → internal keys */
+        const COL_MAP = {
+            quarter: ['quarter','period','date','Quarter','Period'],
+            jewelry: ['jewelry','jewellery','jewelry_demand','Jewelry','Jewellery','Jewelry demand'],
+            barCoin: ['bar_coin','bar & coin','bar&coin','barandcoin','bar coin','Bar & Coin','Bar_Coin','Bar and coin'],
+            etfFlows: ['etf_flows','etf flows','etf','etfflows','ETF Flows','ETF_Flows','ETF'],
+            netPurchases: ['central_banks','central banks','centralbanks','net_purchases','cb purchases','Central Banks','Central_Banks','Net Purchases'],
+            goldPrice: ['gold_price','gold price','goldprice','price','avg_price','Gold Price','Gold_Price'],
+        };
+
+        function mapHeader(name) {
+            const n = name.trim().toLowerCase();
+            for (const [key, variants] of Object.entries(COL_MAP)) {
+                if (variants.some(v => v.toLowerCase() === n)) return key;
+            }
+            return null;
+        }
+
+        /** Parse a CSV string (from gold.org or manual) into an array of row objects.
+         *  Returns { rows, errors }. */
+        function parseWgcCsv(text) {
+            // Strip BOM if present
+            const raw = text.replace(/^﻿/, '');
+            const lines = raw.split(/?
+/).filter(l => l.trim());
+            if (lines.length < 2) return { rows: [], errors: ['File is empty or has only one line'] };
+
+            // Detect delimiter (comma or semicolon)
+            const delim = lines[0].includes(';') ? ';' : ',';
+
+            const headers = lines[0].split(delim).map(h => h.replace(/^"|"$/g,'').trim());
+            const colIndex = {};
+            const unmapped = [];
+            headers.forEach((h, i) => {
+                const key = mapHeader(h);
+                if (key) colIndex[key] = i;
+                else if (h) unmapped.push(h);
+            });
+
+            const required = ['quarter','jewelry','barCoin','etfFlows','netPurchases','goldPrice'];
+            const missing = required.filter(k => colIndex[k] === undefined);
+            if (missing.length) {
+                return { rows: [], errors: [
+                    'Missing required columns: ' + missing.join(', ') + '
+' +
+                    'Found columns: ' + headers.join(', ') + '
+' +
+                    (unmapped.length ? 'Unrecognised columns (ignored): ' + unmapped.join(', ') : '')
+                ]};
+            }
+
+            const rows = [];
+            const errors = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (!line.trim()) continue;
+                const cells = line.split(delim).map(c => c.replace(/^"|"$/g,'').trim());
+                const qRaw = cells[colIndex.quarter];
+                const q = normalizeQuarterKey(qRaw);
+                if (!q) {
+                    errors.push('Row ' + (i+1) + ': Cannot parse quarter "' + qRaw + '"');
+                    continue;
+                }
+                const row = { quarter: q, lineNum: i + 1 };
+                ['jewelry','barCoin','etfFlows','netPurchases','goldPrice'].forEach(k => {
+                    const raw = cells[colIndex[k]];
+                    row[k] = raw !== undefined && raw !== '' ? parseFloat(raw) : null;
+                });
+                rows.push(row);
+            }
+            return { rows, errors };
+        }
+
+        /** Validate parsed rows. Returns array of error strings. */
+        function validateRows(rows) {
+            const errors = [];
+            rows.forEach(row => {
+                const q = row.quarter;
+                const lbl = 'Row ' + row.lineNum + ' (' + q + ')';
+                if (row.jewelry !== null && row.jewelry < 0)
+                    errors.push(lbl + ': Jewelry must be ≥ 0 (got ' + row.jewelry + ')');
+                if (row.barCoin !== null && row.barCoin < 0)
+                    errors.push(lbl + ': Bar & Coin must be ≥ 0 (got ' + row.barCoin + ')');
+                if (row.netPurchases !== null && row.netPurchases < 0 && Math.abs(row.netPurchases) > 200)
+                    errors.push(lbl + ': Central Bank net purchases looks extreme (< -200t): ' + row.netPurchases);
+                if (row.goldPrice !== null && row.goldPrice <= 0)
+                    errors.push(lbl + ': Gold Price must be > 0 (got ' + row.goldPrice + ')');
+                if (row.jewelry === null || row.barCoin === null || row.etfFlows === null || row.netPurchases === null)
+                    errors.push(lbl + ': One or more required values are missing or non-numeric');
+            });
+            return errors;
+        }
+
+        let _pendingUploadRows = [];
+
+        function handleUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            document.getElementById('upload-filename').textContent = file.name;
+            document.getElementById('upload-error').style.display = 'none';
+            document.getElementById('upload-preview').style.display = 'none';
+            document.getElementById('upload-success').style.display = 'none';
+            _pendingUploadRows = [];
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const { rows, errors } = parseWgcCsv(e.target.result);
+                if (errors.length) {
+                    showUploadError(errors.join('
+'));
+                    return;
+                }
+                if (!rows.length) { showUploadError('No data rows found in file'); return; }
+
+                const valErrors = validateRows(rows);
+                if (valErrors.length) { showUploadError(valErrors.join('
+')); return; }
+
+                _pendingUploadRows = rows;
+                showUploadPreview(rows);
+            };
+            reader.readAsText(file);
+        }
+
+        function showUploadError(msg) {
+            const el = document.getElementById('upload-error');
+            el.textContent = '⚠ ' + msg;
+            el.style.display = 'block';
+        }
+
+        function showUploadPreview(rows) {
+            const existing = Object.keys(quarterlyData.jewelry);
+            const newRows  = rows.filter(r => !existing.includes(r.quarter));
+            const overRows = rows.filter(r =>  existing.includes(r.quarter));
+
+            let html = '<div style="font-size:12px;color:var(--text-secondary);font-family:JetBrains Mono,monospace;margin-bottom:8px;">' +
+                '<span style="color:var(--positive);">●</span> ' + newRows.length + ' new quarter(s)' +
+                (overRows.length ? ' &nbsp;<span style="color:var(--warning);">●</span> ' + overRows.length + ' to overwrite' : '') +
+                '</div>';
+
+            html += '<div style="overflow-x:auto;"><table class="upload-preview-table">' +
+                '<thead><tr><th>Quarter</th><th>Jewelry</th><th>Bar & Coin</th><th>ETF Flows</th><th>Central Banks</th><th>Gold Price</th><th>Status</th></tr></thead><tbody>';
+
+            rows.forEach(r => {
+                const isNew = !existing.includes(r.quarter);
+                const rowStyle = isNew
+                    ? 'background:rgba(63,185,80,0.07);'
+                    : 'background:rgba(210,153,34,0.07);';
+                const status = isNew
+                    ? '<span style="color:var(--positive);">New</span>'
+                    : '<span style="color:var(--warning);">Overwrite</span>';
+                const etfCls = r.etfFlows >= 0 ? 'color:var(--positive)' : 'color:var(--negative)';
+                html += '<tr style="' + rowStyle + '">' +
+                    '<td>' + r.quarter + '</td>' +
+                    '<td>' + (r.jewelry ?? '—') + '</td>' +
+                    '<td>' + (r.barCoin ?? '—') + '</td>' +
+                    '<td style="' + etfCls + '">' + (r.etfFlows >= 0 ? '+' : '') + (r.etfFlows ?? '—') + '</td>' +
+                    '<td>' + (r.netPurchases ?? '—') + '</td>' +
+                    '<td>$' + (r.goldPrice ?? '—') + '</td>' +
+                    '<td>' + status + '</td></tr>';
+            });
+
+            html += '</tbody></table></div>';
+            html += '<div style="display:flex;gap:8px;margin-top:12px;">' +
+                '<button class="btn" onclick="applyUpload()" style="background:rgba(63,185,80,0.15);border-color:var(--positive);color:var(--positive);">&#10003; Confirm &amp; Apply</button>' +
+                '<button class="btn" onclick="cancelUpload()">Cancel</button></div>';
+
+            const previewEl = document.getElementById('upload-preview');
+            previewEl.innerHTML = html;
+            previewEl.style.display = 'block';
+        }
+
+        function cancelUpload() {
+            _pendingUploadRows = [];
+            document.getElementById('upload-preview').style.display = 'none';
+            document.getElementById('uploadInput').value = '';
+            document.getElementById('upload-filename').textContent = 'No file selected';
+        }
+
+        function applyUpload() {
+            if (!_pendingUploadRows.length) return;
+            const newQ = _pendingUploadRows.filter(r => !Object.keys(quarterlyData.jewelry).includes(r.quarter));
+            const nNew = newQ.length;
+
+            // Merge rows into quarterlyData
+            _pendingUploadRows.forEach(r => {
+                if (r.jewelry      !== null) quarterlyData.jewelry[r.quarter]      = r.jewelry;
+                if (r.barCoin      !== null) quarterlyData.barCoin[r.quarter]      = r.barCoin;
+                if (r.etfFlows     !== null) quarterlyData.etfFlows[r.quarter]     = r.etfFlows;
+                if (r.netPurchases !== null) quarterlyData.netPurchases[r.quarter] = r.netPurchases;
+                if (r.goldPrice    !== null) quarterlyData.goldPrice[r.quarter]    = r.goldPrice;
+                // Add to holdings if we have a value (keep existing holdings if not provided)
+            });
+
+            // Re-render all charts with new data
+            refreshAllCharts();
+
+            // Persist to server
+            const latestQ = Object.keys(quarterlyData.jewelry).sort().pop();
+            fetch('/api/save-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(quarterlyData),
+            })
+            .then(r => r.json())
+            .then(d => {
+                const successEl = document.getElementById('upload-success');
+                successEl.textContent = d.ok
+                    ? '✓ ' + latestQ + ' data loaded. ' + nNew + ' new quarter(s) added. Dashboard updated.'
+                    : '⚠ Charts updated but save failed: ' + d.error;
+                successEl.style.display = 'block';
+            })
+            .catch(() => {
+                document.getElementById('upload-success').textContent = '⚠ Charts updated but server save failed (offline mode).';
+                document.getElementById('upload-success').style.display = 'block';
+            });
+
+            document.getElementById('upload-preview').style.display = 'none';
+            _pendingUploadRows = [];
+            document.getElementById('uploadInput').value = '';
+            document.getElementById('upload-filename').textContent = 'No file selected';
+        }
+
+        function downloadCurrentData() {
+            if (!quarterlyData) { showToast('No data loaded yet'); return; }
+            const quarters = Object.keys(quarterlyData.jewelry).sort();
+            let csv = 'Quarter,Jewelry,Bar_Coin,ETF_Flows,Central_Banks,Gold_Price
+';
+            quarters.forEach(q => {
+                csv += q + ',' +
+                    (quarterlyData.jewelry[q]      ?? '') + ',' +
+                    (quarterlyData.barCoin[q]       ?? '') + ',' +
+                    (quarterlyData.etfFlows[q]      ?? '') + ',' +
+                    (quarterlyData.netPurchases[q]  ?? '') + ',' +
+                    (quarterlyData.goldPrice[q]     ?? '') + '
+';
+            });
+            downloadCSV(csv, 'gold-demand-' + new Date().toISOString().slice(0,10) + '.csv');
         }
 
         function createDemandPieChart() {
