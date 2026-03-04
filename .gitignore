@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# API cache (data files, not source)
+api/cache/
+*.log
+
+# gunicorn runtime
+api/gunicorn.ctl
+
+# Env/secrets (API key is in systemd env, not code)
+.env
