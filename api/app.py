@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from fetcher import fetch_fred, fetch_cot, fetch_yfinance
 import pdfplumber
+from swiss_fetcher import fetch_swiss_gold_imports, compute_swiss_signals
 
 app = Flask(__name__)
 CORS(app, origins=['http://gold.hb-labs.com', 'http://159.223.44.23'])
@@ -20,9 +21,10 @@ CACHE_DIR = '/opt/gold-tracker/api/cache'
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 CACHE_TTL = {
-    'fred.json': 24 * 3600,       # 24 hours
-    'cot.json':  7 * 24 * 3600,   # 7 days
-    'yfinance.json': 24 * 3600,   # 24 hours
+    'fred.json':        24 * 3600,        # 24 hours
+    'cot.json':          7 * 24 * 3600,   # 7 days
+    'yfinance.json':    24 * 3600,        # 24 hours
+    'swiss_gold.json':  35 * 24 * 3600,   # 35 days (monthly data, ~3-week lag)
 }
 
 
@@ -192,6 +194,25 @@ def compute_analytics():
         except Exception:
             pass  # leave neutral on any error
 
+    # ── Swiss trade signal ───────────────────────────────────────────────────
+    swiss_raw, swiss_mtime = load('swiss_gold.json')
+    exports_raw, _         = load('swiss_gold_exports.json')
+    swiss_signals = None
+    try:
+        if swiss_raw:
+            swiss_signals = compute_swiss_signals(swiss_raw, exports_raw)
+    except Exception as _e:
+        swiss_signals = {
+            'signal':        'neutral',
+            'signal_reason': f'Compute error: {_e}',
+            'signal_basis':  'no_data',
+            'imports':       None,
+            'exports':       None,
+            'data_period':   None,
+            'data_lag_days': None,
+            'has_exports_data': False,
+        }
+
     signals = {
         'realRateTrend':    {'value': tips_3m_chg,   'signal': sig(tips_3m_chg,   lambda v: v < -0.1, lambda v: v > 0.1),  'label': '3M TIPS change'},
         'rateModelPremium': {'value': premium_pct,   'signal': sig(premium_pct,   lambda v: v < 10,   lambda v: v > 20),   'label': 'Regime break premium %'},
@@ -200,7 +221,11 @@ def compute_analytics():
         'cobasis':          {'value': cobasis,       'signal': sig(cobasis,       lambda v: v > 0,    lambda v: v < -2),   'label': 'Spot minus futures ($/oz)'},
         'gdxGldVs3yAvg':    {'value': gdxgld_vs_avg, 'signal': sig(gdxgld_vs_avg, lambda v: v > 0,    lambda v: v < -0.01),'label': 'GDX/GLD vs 3Y avg'},
         'goldSilverRatio':  {'value': gsr,           'signal': sig(gsr,           lambda v: v < 70,   lambda v: v > 80),   'label': 'GC=F / SI=F'},
-        'cbDemand':         {'value': wgc_label_detail or wgc_value, 'signal': wgc_signal,            'label': 'Central bank demand (WGC)'},
+        'cbDemand':         {
+            'value':  (swiss_signals.get('imports') or {}).get('total_latest_tonnes') if swiss_signals else None,
+            'signal': swiss_signals.get('signal', 'neutral') if swiss_signals else 'neutral',
+            'label':  'Swiss trade flows (CB demand proxy)',
+        },
         'etfFlowTrend':     {'value': None,           'signal': 'neutral',                                                   'label': 'ETF flow momentum'},
     }
     bullish_count = sum(1 for s in signals.values() if s['signal'] == 'bullish')
@@ -260,7 +285,9 @@ def compute_analytics():
             'fred':     freshness(fred_mtime),
             'cot':      freshness(cot_mtime),
             'yfinance': freshness(yf_mtime),
+            'swiss':    freshness(swiss_mtime),
         },
+        'swiss_trade': swiss_signals,
     }
 
 
@@ -394,6 +421,323 @@ def analytics_export():
         return jsonify({'error': 'Data not yet cached'}), 503
     write_status_json()
     return jsonify(data)
+
+
+@app.route('/api/swiss-trade')
+def swiss_trade_data():
+    """Serve Swiss gold imports data (auto-fetched from I14Y, cached 35 days).
+    Note: the I14Y download may fail if the server IP is geo-restricted by the
+    BAZG CloudFront distribution. Use /api/swiss-trade/upload-imports to manually
+    upload the CSV downloaded from i14y.admin.ch."""
+    force = request.args.get('refresh') == '1'
+    return serve('swiss_gold.json', fetch_swiss_gold_imports, force=force)
+
+
+@app.route('/api/swiss-trade/upload-imports', methods=['POST'])
+def upload_swiss_imports():
+    """Accept a manual CSV upload of Swiss gold imports from i14y.admin.ch.
+    Use this when the server cannot auto-fetch due to geo-restrictions.
+    Download the English CSV from:
+    https://www.i14y.admin.ch/en/catalog/datasets/BAZG_GOLD_LAND/distributions
+    """
+    import io as _io
+    import pandas as _pd
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file field in request'}), 400
+
+    file = request.files['file']
+    if not file.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'File must be a .csv'}), 400
+
+    raw = file.read()
+    content = None
+    for enc in ('utf-8', 'latin-1'):
+        try:
+            content = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            pass
+    if content is None:
+        return jsonify({'error': 'Cannot decode file — try UTF-8 or Latin-1'}), 400
+
+    df = None
+    for sep in [';', ',']:
+        try:
+            candidate = _pd.read_csv(_io.StringIO(content), sep=sep)
+            if len(candidate.columns) > 2:
+                df = candidate
+                break
+        except Exception:
+            pass
+
+    if df is None or len(df) < 3:
+        return jsonify({'error': 'Could not parse CSV or fewer than 3 data rows'}), 400
+
+    col_map = {c.lower(): c for c in df.columns}
+
+    def _fc(*candidates):
+        for cand in candidates:
+            if cand.lower() in col_map:
+                return col_map[cand.lower()]
+        return None
+
+    year_col    = _fc('year', 'jahr', 'annee')
+    month_col   = _fc('month', 'monat', 'mois')
+    country_col = _fc('country_isoalpha2', 'country_isocalpha2', 'laendercode', 'pays_code', 'country_code', 'iso2')
+    country_nm  = _fc('country_txt', 'land', 'pays_txt', 'country_name', 'land_txt')
+    qty_col     = _fc('quantity_kg', 'menge_kg', 'quantite_kg', 'quantity', 'menge', 'quantite', 'kg')
+    val_col     = _fc('value_chf', 'wert_chf', 'valeur_chf', 'value', 'wert', 'valeur', 'chf')
+    dir_col     = _fc('traffic_direction', 'richtung', 'direction', 'verkehrsrichtung')
+    tariff_col  = _fc('tariffnumber8', 'zolltarifnummer', 'tariff')
+
+    if not year_col or not month_col:
+        return jsonify({'error': f'Cannot identify year/month columns. Found: {list(df.columns)}'}), 400
+    if not country_col:
+        return jsonify({'error': f'Cannot identify country column. Found: {list(df.columns)}'}), 400
+    if not qty_col:
+        return jsonify({'error': f'Cannot identify quantity column. Found: {list(df.columns)}'}), 400
+
+    # Filter imports only
+    if dir_col:
+        df = df[df[dir_col].astype(str).str.upper().str[:1] == 'I'].copy()
+
+    # Filter tariff if present
+    if tariff_col:
+        mask = df[tariff_col].astype(str).str.replace('.', '', regex=False).str.startswith('710812')
+        df = df[mask].copy()
+        if len(df) == 0:
+            return jsonify({'error': 'Tariff filter (710812*) returned 0 rows — check export filter'}), 400
+
+    df = df.copy()
+    df['period'] = (
+        df[year_col].astype(int).astype(str)
+        + '-'
+        + df[month_col].astype(int).apply(lambda x: f'{x:02d}')
+    )
+    name_src = country_nm or country_col
+    df[qty_col] = _pd.to_numeric(df[qty_col], errors='coerce').fillna(0)
+    if val_col:
+        df[val_col] = _pd.to_numeric(df[val_col], errors='coerce').fillna(0)
+
+    agg = {qty_col: 'sum'}
+    if val_col:
+        agg[val_col] = 'sum'
+    agg_df = df.groupby(['period', country_col, name_src], as_index=False).agg(agg).sort_values('period')
+
+    data_rows = []
+    for _, row in agg_df.iterrows():
+        rec = {
+            'period':          row['period'],
+            'country':         str(row[country_col]),
+            'country_name':    str(row[name_src]),
+            'quantity_tonnes': round(float(row[qty_col]) / 1000, 3),
+        }
+        if val_col:
+            rec['value_chf'] = int(round(float(row[val_col])))
+        data_rows.append(rec)
+
+    if not data_rows:
+        return jsonify({'error': 'No import rows found after filtering'}), 400
+
+    periods = sorted(agg_df['period'].unique().tolist())
+    imports_dict = {
+        'data':              data_rows,
+        'columns_found':     list(df.columns.tolist()),
+        'row_count':         len(data_rows),
+        'periods_available': periods,
+        'latest_period':     periods[-1] if periods else None,
+        'fetched_at':        datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'source':            'Swiss Federal Customs (FOCBS) via manual upload — tariff 7108.12',
+    }
+
+    write_cache('swiss_gold.json', imports_dict)
+    write_status_json()
+
+    signals = None
+    try:
+        exp_path = cache_path('swiss_gold_exports.json')
+        exp_raw  = read_cache('swiss_gold_exports.json') if os.path.exists(exp_path) else None
+        signals  = compute_swiss_signals(imports_dict, exp_raw)
+    except Exception:
+        pass
+
+    return jsonify({
+        'success':       True,
+        'rows_imported': len(data_rows),
+        'periods':       periods,
+        'latest_period': imports_dict['latest_period'],
+        'signals':       signals,
+        'preview':       data_rows[:5],
+    })
+
+
+@app.route('/api/swiss-trade/upload-exports', methods=['POST'])
+def upload_swiss_exports():
+    """Accept a manual CSV export of Swiss gold exports from swissimpex.admin.ch."""
+    import io as _io
+    import pandas as _pd
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file field in request'}), 400
+
+    file = request.files['file']
+    if not file.filename.lower().endswith('.csv'):
+        return jsonify({'error': 'File must be a .csv'}), 400
+
+    # Decode
+    raw = file.read()
+    content = None
+    for enc in ('utf-8', 'latin-1'):
+        try:
+            content = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            pass
+    if content is None:
+        return jsonify({'error': 'Cannot decode file — try exporting as UTF-8 or Latin-1'}), 400
+
+    # Parse: try semicolon (SwissImpex default) then comma
+    df = None
+    for sep in [';', ',']:
+        try:
+            candidate = _pd.read_csv(_io.StringIO(content), sep=sep)
+            if len(candidate.columns) > 2:
+                df = candidate
+                break
+        except Exception:
+            pass
+
+    if df is None or len(df) < 3:
+        return jsonify({'error': 'Could not parse CSV or fewer than 3 data rows'}), 400
+
+    # Identify columns
+    col_map = {c.lower(): c for c in df.columns}
+
+    def _fc(*candidates):
+        for cand in candidates:
+            if cand.lower() in col_map:
+                return col_map[cand.lower()]
+        return None
+
+    year_col    = _fc('year', 'jahr', 'annee')
+    month_col   = _fc('month', 'monat', 'mois')
+    country_col = _fc('country_isoalpha2', 'country_isocalpha2', 'laendercode', 'pays_code', 'country_code', 'iso2')
+    country_nm  = _fc('country_txt', 'land', 'pays_txt', 'country_name', 'land_txt')
+    qty_col     = _fc('quantity_kg', 'menge_kg', 'quantite_kg', 'quantity', 'menge', 'quantite', 'kg')
+    val_col     = _fc('value_chf', 'wert_chf', 'valeur_chf', 'value', 'wert', 'valeur', 'chf')
+    dir_col     = _fc('traffic_direction', 'richtung', 'direction', 'verkehrsrichtung')
+    tariff_col  = _fc('tariffnumber8', 'zolltarifnummer', 'tariff')
+
+    if not year_col or not month_col:
+        return jsonify({'error': f'Cannot identify year/month columns. Found: {list(df.columns)}'}), 400
+    if not country_col:
+        return jsonify({'error': f'Cannot identify country column. Found: {list(df.columns)}'}), 400
+    if not qty_col:
+        return jsonify({'error': f'Cannot identify quantity column. Found: {list(df.columns)}'}), 400
+
+    # Filter exports only
+    if dir_col:
+        df = df[df[dir_col].astype(str).str.upper().str[:1] == 'E'].copy()
+
+    # Filter tariff if present
+    if tariff_col:
+        mask = df[tariff_col].astype(str).str.replace('.', '', regex=False).str.startswith('710812')
+        df = df[mask].copy()
+        if len(df) == 0:
+            return jsonify({'error': 'Tariff filter (710812*) returned 0 rows — check export filter'}), 400
+
+    # Build period
+    df = df.copy()
+    df['period'] = (
+        df[year_col].astype(int).astype(str)
+        + '-'
+        + df[month_col].astype(int).apply(lambda x: f'{x:02d}')
+    )
+    name_src = country_nm or country_col
+    df[qty_col] = _pd.to_numeric(df[qty_col], errors='coerce').fillna(0)
+    if val_col:
+        df[val_col] = _pd.to_numeric(df[val_col], errors='coerce').fillna(0)
+
+    agg = {qty_col: 'sum'}
+    if val_col:
+        agg[val_col] = 'sum'
+    agg_df = df.groupby(['period', country_col, name_src], as_index=False).agg(agg).sort_values('period')
+
+    data_rows = []
+    for _, row in agg_df.iterrows():
+        rec = {
+            'period':          row['period'],
+            'country':         str(row[country_col]),
+            'country_name':    str(row[name_src]),
+            'quantity_tonnes': round(float(row[qty_col]) / 1000, 3),
+        }
+        if val_col:
+            rec['value_chf'] = int(round(float(row[val_col])))
+        data_rows.append(rec)
+
+    periods = sorted(agg_df['period'].unique().tolist())
+    exports_dict = {
+        'data':              data_rows,
+        'columns_found':     list(df.columns.tolist()),
+        'row_count':         len(data_rows),
+        'periods_available': periods,
+        'latest_period':     periods[-1] if periods else None,
+        'fetched_at':        datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'source':            'SwissImpex manual export (swissimpex.admin.ch)',
+        'upload_type':       'exports',
+    }
+
+    # Validate we have something useful
+    if not data_rows:
+        return jsonify({'error': 'No export rows found after filtering — check date range and tariff'}), 400
+
+    # Save to cache (do NOT overwrite if validation passed but 0 rows — checked above)
+    write_cache('swiss_gold_exports.json', exports_dict)
+    write_status_json()
+
+    # Return result with signals if imports also available
+    signals = None
+    try:
+        imp_path = cache_path('swiss_gold.json')
+        if os.path.exists(imp_path):
+            imp_raw = read_cache('swiss_gold.json')
+            signals = compute_swiss_signals(imp_raw, exports_dict)
+    except Exception:
+        pass
+
+    return jsonify({
+        'success':        True,
+        'rows_imported':  len(data_rows),
+        'periods':        periods,
+        'latest_period':  exports_dict['latest_period'],
+        'signals':        signals,
+        'preview':        data_rows[:5],
+    })
+
+
+@app.route('/api/swiss-trade/status')
+def swiss_trade_status():
+    """Return cache age and freshness for Swiss import/export data."""
+    def file_info(fname, ttl):
+        path = cache_path(fname)
+        if not os.path.exists(path):
+            return {'exists': False, 'fresh': False}
+        mtime = os.path.getmtime(path)
+        age_h = (time.time() - mtime) / 3600
+        return {
+            'exists':       True,
+            'last_updated': datetime.utcfromtimestamp(mtime).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'age_hours':    round(age_h, 1),
+            'fresh':        (time.time() - mtime) < ttl,
+        }
+
+    return jsonify({
+        'imports':     file_info('swiss_gold.json', 35 * 24 * 3600),
+        'exports':     file_info('swiss_gold_exports.json', 999 * 24 * 3600),
+        'refresh_url': '/api/swiss-trade?refresh=1',
+        'upload_url':  '/api/swiss-trade/upload-exports',
+    })
 
 
 @app.route('/api/health')
