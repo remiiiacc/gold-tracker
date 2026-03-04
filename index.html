@@ -2655,8 +2655,7 @@
         function parseWgcCsv(text) {
             // Strip BOM if present
             const raw = text.replace(/^﻿/, '');
-            const lines = raw.split(/?
-/).filter(l => l.trim());
+            const lines = raw.split(/\r?\n/).filter(l => l.trim());
             if (lines.length < 2) return { rows: [], errors: ['File is empty or has only one line'] };
 
             // Detect delimiter (comma or semicolon)
@@ -2675,10 +2674,8 @@
             const missing = required.filter(k => colIndex[k] === undefined);
             if (missing.length) {
                 return { rows: [], errors: [
-                    'Missing required columns: ' + missing.join(', ') + '
-' +
-                    'Found columns: ' + headers.join(', ') + '
-' +
+                    'Missing required columns: ' + missing.join(', ') + '\n' +
+                    'Found columns: ' + headers.join(', ') + '\n' +
                     (unmapped.length ? 'Unrecognised columns (ignored): ' + unmapped.join(', ') : '')
                 ]};
             }
@@ -2740,15 +2737,13 @@
             reader.onload = e => {
                 const { rows, errors } = parseWgcCsv(e.target.result);
                 if (errors.length) {
-                    showUploadError(errors.join('
-'));
+                    showUploadError(errors.join('\n'));
                     return;
                 }
                 if (!rows.length) { showUploadError('No data rows found in file'); return; }
 
                 const valErrors = validateRows(rows);
-                if (valErrors.length) { showUploadError(valErrors.join('
-')); return; }
+                if (valErrors.length) { showUploadError(valErrors.join('\n')); return; }
 
                 _pendingUploadRows = rows;
                 showUploadPreview(rows);
@@ -2858,16 +2853,14 @@
         function downloadCurrentData() {
             if (!quarterlyData) { showToast('No data loaded yet'); return; }
             const quarters = Object.keys(quarterlyData.jewelry).sort();
-            let csv = 'Quarter,Jewelry,Bar_Coin,ETF_Flows,Central_Banks,Gold_Price
-';
+            let csv = 'Quarter,Jewelry,Bar_Coin,ETF_Flows,Central_Banks,Gold_Price\n';
             quarters.forEach(q => {
                 csv += q + ',' +
                     (quarterlyData.jewelry[q]      ?? '') + ',' +
                     (quarterlyData.barCoin[q]       ?? '') + ',' +
                     (quarterlyData.etfFlows[q]      ?? '') + ',' +
                     (quarterlyData.netPurchases[q]  ?? '') + ',' +
-                    (quarterlyData.goldPrice[q]     ?? '') + '
-';
+                    (quarterlyData.goldPrice[q]     ?? '') + '\n';
             });
             downloadCSV(csv, 'gold-demand-' + new Date().toISOString().slice(0,10) + '.csv');
         }
