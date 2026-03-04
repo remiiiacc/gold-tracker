@@ -8,10 +8,11 @@
 // Global state
 // ---------------------------------------------------------------------------
 const analyticsState = {
-  fred: null,   // { tips, gold, dxy, sofr, fetched_at }
-  cot: null,    // { data: [...], fetched_at }
-  yf: null,     // { gold_futures, gdx, gld, slv, silver_futures, fetched_at }
-  status: null, // { fred, cot, yfinance }
+  fred: null,        // { tips, gold, dxy, sofr, fetched_at }
+  cot: null,         // { data: [...], fetched_at }
+  yf: null,          // { gold_futures, gdx, gld, slv, silver_futures, fetched_at }
+  status: null,      // { fred, cot, yfinance }
+  swissTrade: null,  // { data, signals, latest_period, ... } from /api/swiss-trade
   charts: {},
   // chart1r2 stored here as charts.chart1r2
   initialized: false,
@@ -44,6 +45,7 @@ async function initMarketStructure() {
     buildChart6();
     buildChart7();
     buildScorecard();
+    buildSwissPanel();
 
     // Wire up sub-nav scroll anchors
     document.querySelectorAll('.analytics-subnav-btn').forEach(btn => {
@@ -67,17 +69,19 @@ async function initMarketStructure() {
 async function loadAnalyticsData() {
   setAllLoadingState(true);
 
-  const [fredRes, cotRes, yfRes, statusRes] = await Promise.all([
+  const [fredRes, cotRes, yfRes, statusRes, swissRes] = await Promise.all([
     fetch('/api/fred').then(r => r.json()).catch(() => null),
     fetch('/api/cot').then(r => r.json()).catch(() => null),
     fetch('/api/yfinance').then(r => r.json()).catch(() => null),
     fetch('/api/status').then(r => r.json()).catch(() => null),
+    fetch('/api/swiss-trade').then(r => r.json()).catch(() => null),
   ]);
 
-  analyticsState.fred   = fredRes;
-  analyticsState.cot    = cotRes;
-  analyticsState.yf     = yfRes;
-  analyticsState.status = statusRes;
+  analyticsState.fred       = fredRes;
+  analyticsState.cot        = cotRes;
+  analyticsState.yf         = yfRes;
+  analyticsState.status     = statusRes;
+  analyticsState.swissTrade = swissRes;
 
   // Update last-fetched badges in HTML
   if (statusRes) {
@@ -1923,4 +1927,232 @@ function setAiPanelState(chartId, state, data) {
     // dormant (default)
     if (dormant) dormant.style.display = 'flex';
   }
+}
+
+// =============================================================================
+// Swiss Trade Flows Panel (ms-chart9)
+// =============================================================================
+
+function buildSwissPanel() {
+  const raw    = analyticsState.swissTrade;
+  const loading = document.getElementById('swiss-loading');
+  const noData  = document.getElementById('swiss-no-data');
+  const content = document.getElementById('swiss-content');
+
+  if (loading) loading.style.display = 'none';
+
+  const rows = (raw && !raw.error) ? (raw.data || []) : [];
+  if (!rows.length) {
+    if (noData)  noData.style.display  = 'block';
+    if (content) content.style.display = 'none';
+    return;
+  }
+
+  if (content) content.style.display = 'block';
+
+  // ── Derive signals client-side from raw data ───────────────────────────────
+  // Aggregate total imports per period
+  const totals = {};  // period → tonnes
+  const byPeriodCountry = {};
+  rows.forEach(r => {
+    totals[r.period] = (totals[r.period] || 0) + r.quantity_tonnes;
+    if (!byPeriodCountry[r.period]) byPeriodCountry[r.period] = {};
+    byPeriodCountry[r.period][r.country_name] =
+      (byPeriodCountry[r.period][r.country_name] || 0) + r.quantity_tonnes;
+  });
+
+  const periods = Object.keys(totals).sort();
+  const values  = periods.map(p => totals[p]);
+  const latestPeriod = periods[periods.length - 1];
+  const latestVal    = values[values.length - 1];
+
+  // 3M rolling sum
+  const sum3m = values.slice(-3).reduce((a, b) => a + b, 0);
+  // 6M avg
+  const avg6m = values.slice(-6).reduce((a, b) => a + b, 0) / Math.min(6, values.length);
+  // YoY
+  let yoyPct = null;
+  if (values.length >= 13) {
+    const prev = values[values.length - 13];
+    if (prev) yoyPct = ((values[values.length - 1] - prev) / prev) * 100;
+  }
+
+  // Signal
+  let signal = 'neutral';
+  if (yoyPct !== null) {
+    if (sum3m > avg6m && yoyPct > 0) signal = 'bullish';
+    else if (sum3m < avg6m && yoyPct < 0) signal = 'bearish';
+  }
+
+  // Data lag
+  let lagStr = '';
+  if (latestPeriod) {
+    const [yr, mo] = latestPeriod.split('-').map(Number);
+    const lastDay  = new Date(yr, mo, 0);
+    const lagDays  = Math.round((Date.now() - lastDay) / 86400000);
+    lagStr = `${lagDays}d data lag`;
+  }
+
+  // ── Badge ──────────────────────────────────────────────────────────────────
+  const badge = document.getElementById('swiss-signal-badge');
+  if (badge) {
+    const cls   = signal === 'bullish' ? 'badge-bull' : signal === 'bearish' ? 'badge-bear' : 'badge-neutral';
+    const label = signal.charAt(0).toUpperCase() + signal.slice(1);
+    badge.textContent = label;
+    badge.className   = `badge ${cls}`;
+  }
+
+  // ── Signal reason ──────────────────────────────────────────────────────────
+  const reasonEl = document.getElementById('swiss-signal-reason');
+  if (reasonEl) {
+    const color = signal === 'bullish' ? 'var(--positive)' : signal === 'bearish' ? 'var(--negative)' : 'var(--text-muted)';
+    reasonEl.style.borderLeftColor = color;
+    const basis = 'Import proxy (no exports data uploaded)';
+    const yoyStr = yoyPct !== null ? `${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}% YoY` : 'YoY N/A';
+    reasonEl.textContent = `${basis} · 3M ${sum3m.toFixed(0)}t vs 6M avg ${avg6m.toFixed(0)}t · ${yoyStr}`;
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('swiss-stat-period',  latestPeriod || '—');
+  set('swiss-stat-lag',     lagStr);
+  set('swiss-stat-latest',  latestVal != null ? `${latestVal.toFixed(1)}t` : '—');
+  set('swiss-stat-3m',      `${sum3m.toFixed(1)}t`);
+  const yoyEl = document.getElementById('swiss-stat-yoy');
+  if (yoyEl) {
+    if (yoyPct !== null) {
+      yoyEl.textContent = `${yoyPct >= 0 ? '+' : ''}${yoyPct.toFixed(1)}%`;
+      yoyEl.style.color = yoyPct > 0 ? 'var(--positive)' : yoyPct < 0 ? 'var(--negative)' : '';
+    } else {
+      yoyEl.textContent = 'N/A';
+    }
+  }
+
+  // ── Monthly imports bar chart ──────────────────────────────────────────────
+  const ctx = document.getElementById('swiss-chart-imports');
+  if (ctx && analyticsState.charts.swissImports) {
+    analyticsState.charts.swissImports.destroy();
+  }
+  if (ctx) {
+    // Show last 48 months
+    const showPeriods = periods.slice(-48);
+    const showValues  = showPeriods.map(p => totals[p]);
+    analyticsState.charts.swissImports = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: showPeriods,
+        datasets: [{
+          label: 'Swiss Gold Imports (t)',
+          data: showValues,
+          backgroundColor: showValues.map((v, i) => {
+            if (i >= showPeriods.length - 3) return 'rgba(88, 166, 255, 0.85)';
+            return 'rgba(88, 166, 255, 0.45)';
+          }),
+          borderColor: 'rgba(88, 166, 255, 0.9)',
+          borderWidth: 0,
+          borderRadius: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.parsed.y.toFixed(1)}t`,
+            }
+          }
+        },
+        scales: {
+          y: {
+            grid: { color: '#2d3a4a' },
+            ticks: { color: '#8b949e', callback: v => `${v}t` },
+            title: { display: true, text: 'Tonnes', color: '#6e7681', font: { size: 11 } },
+          },
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: '#8b949e',
+              maxRotation: 45,
+              autoSkip: true,
+              maxTicksLimit: 16,
+            },
+          }
+        }
+      }
+    });
+  }
+
+  // ── Top countries table ────────────────────────────────────────────────────
+  const tableEl = document.getElementById('swiss-countries-table');
+  if (tableEl && byPeriodCountry[latestPeriod]) {
+    const countryData = byPeriodCountry[latestPeriod];
+    const sorted = Object.entries(countryData)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    const maxVal = sorted[0] ? sorted[0][1] : 1;
+
+    tableEl.innerHTML = sorted.map(([name, val]) => {
+      const pct = (val / maxVal * 100).toFixed(0);
+      const share = (val / latestVal * 100).toFixed(1);
+      return `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <div style="width:130px;font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+          <div style="flex:1;background:var(--bg-secondary);border-radius:2px;height:8px;overflow:hidden;">
+            <div style="width:${pct}%;background:var(--accent-blue);height:100%;border-radius:2px;opacity:0.75;"></div>
+          </div>
+          <div style="width:50px;text-align:right;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);">${val.toFixed(1)}t</div>
+          <div style="width:40px;text-align:right;font-size:11px;color:var(--text-muted);">${share}%</div>
+        </div>`;
+    }).join('');
+  }
+}
+
+// ── Manual CSV upload ──────────────────────────────────────────────────────
+async function handleSwissUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const statusEl = document.getElementById('swiss-upload-status');
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'var(--bg-secondary)';
+    statusEl.style.color = 'var(--text-muted)';
+    statusEl.textContent = `⏳ Uploading ${file.name}…`;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const r   = await fetch('/api/swiss-trade/upload-imports', { method: 'POST', body: formData });
+    const res = await r.json();
+
+    if (!r.ok || res.error) {
+      if (statusEl) {
+        statusEl.style.color = 'var(--negative)';
+        statusEl.textContent = `✗ ${res.error || 'Upload failed'}`;
+      }
+      return;
+    }
+
+    // Refresh Swiss data and rebuild panel
+    const fresh = await fetch('/api/swiss-trade').then(r2 => r2.json()).catch(() => null);
+    analyticsState.swissTrade = fresh;
+    buildSwissPanel();
+
+    if (statusEl) {
+      statusEl.style.color = 'var(--positive)';
+      statusEl.textContent = `✓ Imported ${res.rows_imported} rows · ${res.periods?.length || 0} months · latest: ${res.latest_period}`;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.color = 'var(--negative)';
+      statusEl.textContent = `✗ Upload failed: ${err.message}`;
+    }
+  }
+
+  // Clear file input so same file can be re-uploaded
+  event.target.value = '';
 }
