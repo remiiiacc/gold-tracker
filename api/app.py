@@ -3,6 +3,7 @@ Gold Tracker API Server
 Flask backend — all API keys stay server-side, never in frontend.
 Run with: gunicorn -w 2 -b 127.0.0.1:5000 app:app
 """
+import io
 import json
 import os
 import time
@@ -10,6 +11,7 @@ from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from fetcher import fetch_fred, fetch_cot, fetch_yfinance
+import pdfplumber
 
 app = Flask(__name__)
 CORS(app, origins=['http://gold.hb-labs.com', 'http://159.223.44.23'])
@@ -840,6 +842,125 @@ def analysis():
 # QUARTERLY_JSON_PATH — data store for WGC demand data (written by /api/save-data)
 # ---------------------------------------------------------------------------
 QUARTERLY_JSON_PATH = '/var/www/gold-tracker/data/quarterly.json'
+
+
+def parse_wgc_pdf(pdf_bytes):
+    """Extract quarterly demand data from a WGC Gold Demand Trends PDF.
+    Returns (rows, warnings) where rows is a list of dicts with keys:
+    quarter, jewelry, barCoin, etfFlows, netPurchases, goldPrice."""
+    import re
+
+    def parse_quarter_header(text):
+        if not text:
+            return None
+        t = str(text).strip().replace('\n', ' ')
+        m = re.match(r"Q([1-4])['\s]?(\d{2})$", t)
+        if m:
+            return f"20{m.group(2)}-Q{m.group(1)}"
+        m = re.match(r"Q([1-4])\s+(\d{4})$", t, re.I)
+        if m:
+            return f"{m.group(2)}-Q{m.group(1)}"
+        m = re.match(r"(\d{4})\s+Q([1-4])$", t, re.I)
+        if m:
+            return f"{m.group(1)}-Q{m.group(2)}"
+        return None
+
+    ROW_MAP = {
+        'jewellery': 'jewelry', 'jewelry': 'jewelry',
+        'bar & coin': 'barCoin', 'bar and coin': 'barCoin', 'physical bar': 'barCoin',
+        'etf': 'etfFlows', 'etf and similar': 'etfFlows',
+        'central bank': 'netPurchases', 'net purchases': 'netPurchases',
+        'gold price': 'goldPrice', 'lbma gold': 'goldPrice', 'average gold': 'goldPrice',
+    }
+
+    def map_row_label(label):
+        lower = str(label).lower().strip()
+        for key, internal in ROW_MAP.items():
+            if key in lower:
+                return internal
+        return None
+
+    def safe_float(val):
+        s = re.sub(r'[^\d.\-]', '', str(val).strip().replace(',', ''))
+        try:
+            return float(s) if s else None
+        except ValueError:
+            return None
+
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        all_tables = [t for page in pdf.pages for t in (page.extract_tables() or [])]
+
+    # Find demand table (has "Jewellery"/"Jewelry" row)
+    demand_table = next((t for t in all_tables
+                         if any('jewel' in str(r[0]).lower() for r in t if r and r[0])), None)
+    if demand_table is None:
+        return [], ['No demand statistics table found in PDF']
+
+    # Parse quarter columns from header row
+    col_quarters = {i: parse_quarter_header(cell)
+                    for i, cell in enumerate(demand_table[0][1:], start=1)
+                    if parse_quarter_header(cell)}
+    if not col_quarters:
+        return [], ['Could not identify quarterly columns in demand table']
+
+    # Collect data per quarter
+    collected = {q: {} for q in col_quarters.values()}
+    for row in demand_table[1:]:
+        if not row or not row[0]:
+            continue
+        key = map_row_label(row[0])
+        if key:
+            for ci, quarter in col_quarters.items():
+                if ci < len(row):
+                    v = safe_float(row[ci])
+                    if v is not None:
+                        collected[quarter][key] = v
+
+    # Fallback: find gold price in a separate table
+    if not any('goldPrice' in v for v in collected.values()):
+        for table in all_tables:
+            flat = [str(r[0]).lower() for r in table if r and r[0]]
+            if any('gold price' in l or 'lbma' in l for l in flat):
+                price_cols = {i: parse_quarter_header(cell)
+                              for i, cell in enumerate(table[0][1:], start=1)
+                              if parse_quarter_header(cell)}
+                for row in table[1:]:
+                    if row and row[0] and ('price' in str(row[0]).lower() or 'lbma' in str(row[0]).lower()):
+                        for ci, q in price_cols.items():
+                            if ci < len(row) and q in collected:
+                                v = safe_float(row[ci])
+                                if v is not None:
+                                    collected[q]['goldPrice'] = v
+                break
+
+    # Build output rows
+    required = ['jewelry', 'barCoin', 'etfFlows', 'netPurchases']
+    rows = [{'quarter': q, **{k: d.get(k) for k in ['jewelry', 'barCoin', 'etfFlows', 'netPurchases', 'goldPrice']}}
+            for q in sorted(collected) if all(k in (d := collected[q]) for k in required)]
+
+    warnings = []
+    if not rows:
+        warnings.append('Table found but no complete quarterly rows extracted.')
+    return rows, warnings
+
+
+@app.route('/api/upload-pdf', methods=['POST'])
+def upload_pdf():
+    """Accept a WGC Gold Demand Trends PDF, extract quarterly data, return rows as JSON."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        f = request.files['file']
+        if not f.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'File must be a PDF'}), 400
+        pdf_bytes = f.read()
+        rows, warnings = parse_wgc_pdf(pdf_bytes)
+        if not rows:
+            return jsonify({'error': 'Could not extract quarterly data from PDF. '
+                                     'Make sure this is a WGC Gold Demand Trends report.'}), 422
+        return jsonify({'rows': rows, 'warnings': warnings})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/save-data', methods=['POST'])

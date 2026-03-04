@@ -1290,14 +1290,12 @@
                     <button class="btn" onclick="downloadCurrentData()" style="font-size:11px;padding:4px 10px;">&#8595; Download Current Dataset</button>
                 </div>
                 <div class="source-desc" style="margin-top:6px;">
-                    Upload a CSV from gold.org or a manually structured CSV to add new quarterly data.<br>
-                    Accepted columns: <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">Quarter, Jewelry, Bar_Coin, ETF_Flows, Central_Banks, Gold_Price</code><br>
-                    Quarter formats accepted: <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">2025-Q4</code> &nbsp;or&nbsp; <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">Q4 2025</code> &nbsp;or&nbsp; <code style="font-size:11px;background:var(--bg-tertiary);padding:1px 4px;border-radius:3px;">2025Q4</code>
+                    Upload a WGC Gold Demand Trends PDF (available quarterly at gold.org). Jewelry, bar &amp; coin, ETF flows, central bank purchases and gold price are extracted automatically.
                 </div>
                 <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                     <label class="btn" style="cursor:pointer;font-size:12px;padding:5px 12px;">
-                        &#128194; Choose CSV File
-                        <input type="file" id="uploadInput" accept=".csv" style="display:none;" onchange="handleUpload(event)">
+                        &#128196; Choose PDF File
+                        <input type="file" id="uploadInput" accept=".pdf" style="display:none;" onchange="handleUpload(event)">
                     </label>
                     <span id="upload-filename" style="font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">No file selected</span>
                 </div>
@@ -2614,7 +2612,7 @@
             initializeFilters();
         }
 
-        // ─── CSV Upload Logic ────────────────────────────────────────────────────
+        // ─── PDF Upload Logic ────────────────────────────────────────────────────
 
         /** Normalise quarter strings to "YYYY-QN" format.
          *  Accepts: "2025-Q4", "Q4 2025", "2025Q4", "2025 Q4" */
@@ -2632,82 +2630,12 @@
             return null;
         }
 
-        /** Column name mapping: WGC export variants → internal keys */
-        const COL_MAP = {
-            quarter: ['quarter','period','date','Quarter','Period'],
-            jewelry: ['jewelry','jewellery','jewelry_demand','Jewelry','Jewellery','Jewelry demand'],
-            barCoin: ['bar_coin','bar & coin','bar&coin','barandcoin','bar coin','Bar & Coin','Bar_Coin','Bar and coin'],
-            etfFlows: ['etf_flows','etf flows','etf','etfflows','ETF Flows','ETF_Flows','ETF'],
-            netPurchases: ['central_banks','central banks','centralbanks','net_purchases','cb purchases','Central Banks','Central_Banks','Net Purchases'],
-            goldPrice: ['gold_price','gold price','goldprice','price','avg_price','Gold Price','Gold_Price'],
-        };
-
-        function mapHeader(name) {
-            const n = name.trim().toLowerCase();
-            for (const [key, variants] of Object.entries(COL_MAP)) {
-                if (variants.some(v => v.toLowerCase() === n)) return key;
-            }
-            return null;
-        }
-
-        /** Parse a CSV string (from gold.org or manual) into an array of row objects.
-         *  Returns { rows, errors }. */
-        function parseWgcCsv(text) {
-            // Strip BOM if present
-            const raw = text.replace(/^﻿/, '');
-            const lines = raw.split(/\r?\n/).filter(l => l.trim());
-            if (lines.length < 2) return { rows: [], errors: ['File is empty or has only one line'] };
-
-            // Detect delimiter (comma or semicolon)
-            const delim = lines[0].includes(';') ? ';' : ',';
-
-            const headers = lines[0].split(delim).map(h => h.replace(/^"|"$/g,'').trim());
-            const colIndex = {};
-            const unmapped = [];
-            headers.forEach((h, i) => {
-                const key = mapHeader(h);
-                if (key) colIndex[key] = i;
-                else if (h) unmapped.push(h);
-            });
-
-            const required = ['quarter','jewelry','barCoin','etfFlows','netPurchases','goldPrice'];
-            const missing = required.filter(k => colIndex[k] === undefined);
-            if (missing.length) {
-                return { rows: [], errors: [
-                    'Missing required columns: ' + missing.join(', ') + '\n' +
-                    'Found columns: ' + headers.join(', ') + '\n' +
-                    (unmapped.length ? 'Unrecognised columns (ignored): ' + unmapped.join(', ') : '')
-                ]};
-            }
-
-            const rows = [];
-            const errors = [];
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (!line.trim()) continue;
-                const cells = line.split(delim).map(c => c.replace(/^"|"$/g,'').trim());
-                const qRaw = cells[colIndex.quarter];
-                const q = normalizeQuarterKey(qRaw);
-                if (!q) {
-                    errors.push('Row ' + (i+1) + ': Cannot parse quarter "' + qRaw + '"');
-                    continue;
-                }
-                const row = { quarter: q, lineNum: i + 1 };
-                ['jewelry','barCoin','etfFlows','netPurchases','goldPrice'].forEach(k => {
-                    const raw = cells[colIndex[k]];
-                    row[k] = raw !== undefined && raw !== '' ? parseFloat(raw) : null;
-                });
-                rows.push(row);
-            }
-            return { rows, errors };
-        }
-
         /** Validate parsed rows. Returns array of error strings. */
         function validateRows(rows) {
             const errors = [];
             rows.forEach(row => {
                 const q = row.quarter;
-                const lbl = 'Row ' + row.lineNum + ' (' + q + ')';
+                const lbl = q;
                 if (row.jewelry !== null && row.jewelry < 0)
                     errors.push(lbl + ': Jewelry must be ≥ 0 (got ' + row.jewelry + ')');
                 if (row.barCoin !== null && row.barCoin < 0)
@@ -2729,26 +2657,34 @@
             if (!file) return;
             document.getElementById('upload-filename').textContent = file.name;
             document.getElementById('upload-error').style.display = 'none';
-            document.getElementById('upload-preview').style.display = 'none';
             document.getElementById('upload-success').style.display = 'none';
             _pendingUploadRows = [];
 
-            const reader = new FileReader();
-            reader.onload = e => {
-                const { rows, errors } = parseWgcCsv(e.target.result);
-                if (errors.length) {
-                    showUploadError(errors.join('\n'));
-                    return;
-                }
-                if (!rows.length) { showUploadError('No data rows found in file'); return; }
+            const prevEl = document.getElementById('upload-preview');
+            prevEl.style.display = 'block';
+            prevEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">'
+                             + '&#9203; Parsing PDF&hellip;</div>';
 
-                const valErrors = validateRows(rows);
-                if (valErrors.length) { showUploadError(valErrors.join('\n')); return; }
+            const formData = new FormData();
+            formData.append('file', file);
 
-                _pendingUploadRows = rows;
-                showUploadPreview(rows);
-            };
-            reader.readAsText(file);
+            fetch('/api/upload-pdf', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    prevEl.style.display = 'none';
+                    if (data.error) { showUploadError(data.error); return; }
+                    const { rows, warnings } = data;
+                    if (warnings && warnings.length) showUploadError('\u26a0 ' + warnings.join('\n'));
+                    if (!rows || !rows.length) { showUploadError('No quarterly data rows found in PDF.'); return; }
+                    const valErrors = validateRows(rows);
+                    if (valErrors.length) { showUploadError(valErrors.join('\n')); return; }
+                    _pendingUploadRows = rows;
+                    showUploadPreview(rows);
+                })
+                .catch(err => {
+                    prevEl.style.display = 'none';
+                    showUploadError('Upload failed: ' + err.message);
+                });
         }
 
         function showUploadError(msg) {
