@@ -2102,9 +2102,10 @@
                                 countryQuarterlyData[code] = { name: info.name, holdings: info.quarters };
                             }
                         });
-                        // Populate quarterlyData.holdings from IMF totals so stat cards work
-                        if (!quarterlyData.holdings) quarterlyData.holdings = {};
-                        Object.assign(quarterlyData.holdings, imf.total_by_quarter || {});
+                        // Only populate quarterlyData.holdings from IMF totals if WGC data is absent
+                        if (!quarterlyData.holdings || !Object.keys(quarterlyData.holdings).length) {
+                            quarterlyData.holdings = Object.assign({}, imf.total_by_quarter || {});
+                        }
                     }
                     // Populate IMF freshness badge (shown in Market Structure tab)
                     const imfEl = document.getElementById('status-imf');
@@ -2695,18 +2696,24 @@
 
         /** Update header stat cards from live quarterlyData (called after data load/upload). */
         function updateHeaderStatCards() {
-            const holdingKeys = Object.keys(quarterlyData.holdings || {}).sort();
-            const purchaseKeys = Object.keys(quarterlyData.netPurchases).sort();
-            const latestQ = holdingKeys[holdingKeys.length - 1]
-                         || purchaseKeys[purchaseKeys.length - 1]
-                         || '';
-            const latestHoldings = quarterlyData.holdings[latestQ];
-            const latestPurchase = quarterlyData.netPurchases[latestQ];
+            const holdingKeys  = Object.keys(quarterlyData.holdings || {}).sort();
+            const purchaseKeys = Object.keys(quarterlyData.netPurchases || {}).sort();
+
+            // Use latest Q with holdings data for the CB total card
+            const latestHoldingQ  = holdingKeys[holdingKeys.length - 1] || '';
+            // Use latest Q with purchases data for the net purchase card
+            const latestPurchaseQ = purchaseKeys[purchaseKeys.length - 1] || '';
+            // Overall latest Q for header label
+            const latestQ = latestHoldingQ > latestPurchaseQ ? latestHoldingQ : latestPurchaseQ;
+
+            const latestHoldings = quarterlyData.holdings[latestHoldingQ];
+            const latestPurchase = quarterlyData.netPurchases[latestPurchaseQ];
             const latestYear = latestQ.slice(0, 4);
             const ytd = purchaseKeys
                 .filter(q => q.startsWith(latestYear))
                 .reduce((s, q) => s + (quarterlyData.netPurchases[q] || 0), 0);
-            const latestQLabel = latestQ.replace('-', ' ').replace('Q', 'Q');
+            const holdingLabel  = latestHoldingQ.replace('-', ' ');
+            const purchaseLabel = latestPurchaseQ.replace('-', ' ');
 
             const cbEl  = document.getElementById('stat-cb-holdings');
             const ytdEl = document.getElementById('stat-ytd-purchases');
@@ -2715,11 +2722,11 @@
             const lblEl = document.getElementById('header-data-label');
             const lastUpdateEl = document.getElementById('last-update-label');
 
-            if (cbEl)  cbEl.textContent  = latestHoldings ? latestHoldings.toLocaleString() + 't' : '—';
+            if (cbEl)  cbEl.textContent  = latestHoldings ? Math.round(latestHoldings).toLocaleString() + 't' : '—';
             if (cbChg) cbChg.textContent = latestPurchase
-                ? (latestPurchase >= 0 ? '+' : '') + latestPurchase + 't ' + latestQLabel : '';
-            if (ytdEl) ytdEl.textContent = ytd ? ytd.toLocaleString() + 't' : '—';
-            if (ytdChg) ytdChg.textContent = 'Jan–' + latestQLabel;
+                ? (latestPurchase >= 0 ? '+' : '') + Math.round(latestPurchase) + 't ' + purchaseLabel : '';
+            if (ytdEl) ytdEl.textContent = ytd ? Math.round(ytd).toLocaleString() + 't' : '—';
+            if (ytdChg) ytdChg.textContent = 'Jan–' + purchaseLabel;
             if (lblEl) lblEl.textContent  = latestQ + ' Data';
             if (lastUpdateEl) lastUpdateEl.textContent = 'Last update: ' + latestQ;
         }
@@ -3298,6 +3305,6 @@
     updateGoldPrice();
     setInterval(updateGoldPrice, 5 * 60 * 1000); // refresh every 5 minutes
     </script>
-    <script src="/analytics.js?v=4"></script>
+    <script src="/analytics.js?v=5"></script>
 </body>
 </html>
