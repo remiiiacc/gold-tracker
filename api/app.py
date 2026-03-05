@@ -14,6 +14,7 @@ from fetcher import fetch_fred, fetch_cot, fetch_yfinance
 import pdfplumber
 from swiss_fetcher import fetch_swiss_gold_imports, compute_swiss_signals
 from imf_fetcher import fetch_imf_cb_holdings
+from tic_fetcher import fetch_tic_treasury_holdings
 
 app = Flask(__name__)
 CORS(app, origins=['http://gold.hb-labs.com', 'http://159.223.44.23'])
@@ -27,6 +28,7 @@ CACHE_TTL = {
     'yfinance.json':    24 * 3600,        # 24 hours
     'swiss_gold.json':  35 * 24 * 3600,   # 35 days (monthly data, ~3-week lag)
     'imf_cb.json':      24 * 3600,        # 24 hours (IMF updates monthly)
+    'tic.json':         24 * 3600,        # 24 hours
 }
 
 
@@ -54,6 +56,7 @@ def write_cache(filename, data):
 
 
 STATUS_JSON_PATH = '/var/www/gold-tracker/data/status.json'
+AI_REPORTS_PATH = '/var/www/gold-tracker/data/ai_reports.json'
 
 
 def compute_analytics():
@@ -255,6 +258,50 @@ def compute_analytics():
         except Exception:
             imf_cb_block = None
 
+    # ── TIC Treasury Holdings ────────────────────────────────────────────
+    tic_raw, tic_mtime = load('tic.json')
+    tic_block = None
+    if tic_raw and tic_raw.get('countries'):
+        priority = [
+            'China','Japan','India','Saudi Arabia','Turkey','Poland',
+            'Brazil','Singapore','South Korea','United Kingdom',
+            'Germany','France','Taiwan','Switzerland',
+        ]
+        summary = []
+        for c in priority:
+            d = tic_raw['countries'].get(c)
+            if d:
+                summary.append({
+                    'country':    c,
+                    'latest_bn':  d['latest'],
+                    'month':      d['latest_month'],
+                    'change_1m':  d['change_1m'],
+                    'change_12m': d['change_12m'],
+                })
+        tic_block = {
+            'summary':       summary,
+            'latest_month':  tic_raw.get('latest_month'),
+            'fetched_at':    tic_raw.get('fetched_at'),
+            'all_countries': list(tic_raw['countries'].keys()),
+        }
+
+    # ── WGC vs IMF Gap ───────────────────────────────────────────────────
+    wgc_imf_gap = {}
+    if imf_cb_block and imf_cb_block.get('total_by_quarter'):
+        try:
+            with open(QUARTERLY_JSON_PATH) as _f:
+                _qd = json.load(_f)
+            wgc_net   = _qd.get('netPurchases', {})
+            imf_tots  = imf_cb_block['total_by_quarter']
+            shared    = sorted(set(wgc_net.keys()) & set(imf_tots.keys()))
+            wgc_imf_gap = {
+                'wgc_purchases': {q: wgc_net[q]  for q in shared},
+                'imf_totals':    {q: imf_tots[q] for q in shared},
+            }
+        except Exception:
+            pass
+
+
     return {
         'lastUpdated':            datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'lastDate':               latest['date'] if latest else None,
@@ -304,9 +351,12 @@ def compute_analytics():
             'yfinance': freshness(yf_mtime),
             'swiss':    freshness(swiss_mtime),
             'imf':      freshness(imf_mtime),
+            'tic':      freshness(tic_mtime),
         },
         'swiss_trade':    swiss_signals,
         'imfCbHoldings':  imf_cb_block,
+        'ticHoldings':   tic_block,
+        'wgcImfGap':     wgc_imf_gap,
     }
 
 
@@ -440,6 +490,13 @@ def analytics_export():
         return jsonify({'error': 'Data not yet cached'}), 503
     write_status_json()
     return jsonify(data)
+
+
+@app.route('/api/tic', methods=['GET'])
+def tic():
+    """Fetch TIC Major Foreign Holders of Treasury Securities. Cached 24h."""
+    force = request.args.get('refresh') == '1'
+    return serve('tic.json', fetch_tic_treasury_holdings, force=force)
 
 
 @app.route('/api/imf-cb', methods=['GET'])
@@ -801,6 +858,67 @@ def swiss_trade_status():
         'refresh_url': '/api/swiss-trade?refresh=1',
         'upload_url':  '/api/swiss-trade/upload-exports',
     })
+
+
+@app.route('/api/ai-reports', methods=['GET'])
+def ai_reports_list():
+    """List stored AI reports (newest first) and schedule metadata."""
+    store = _load_ai_reports_store()
+    return jsonify(_ai_reports_payload(store))
+
+
+@app.route('/api/ai-reports/ensure', methods=['POST'])
+def ai_reports_ensure():
+    """Generate initial report if none exists, or auto-generate when monthly schedule is due."""
+    now = datetime.utcnow()
+    store = _load_ai_reports_store()
+    reports = store.get('reports', []) if isinstance(store, dict) else []
+
+    if not reports:
+        try:
+            report, next_due = _generate_ai_report(trigger='auto_initial')
+            payload = _ai_reports_payload(_load_ai_reports_store())
+            payload['generated'] = True
+            payload['reason'] = 'initial_report'
+            payload['newReportId'] = report.get('id')
+            payload['nextScheduledAt'] = _utc_iso(next_due)
+            return jsonify(payload)
+        except Exception as e:
+            return jsonify({'error': f'AI report generation failed: {e}'}), 503
+
+    latest_at = reports[0].get('generated_at')
+    next_due = _next_ai_schedule(latest_at)
+    if now >= next_due:
+        try:
+            report, next_due = _generate_ai_report(trigger='auto_monthly')
+            payload = _ai_reports_payload(_load_ai_reports_store())
+            payload['generated'] = True
+            payload['reason'] = 'scheduled_monthly'
+            payload['newReportId'] = report.get('id')
+            payload['nextScheduledAt'] = _utc_iso(next_due)
+            return jsonify(payload)
+        except Exception as e:
+            return jsonify({'error': f'AI report generation failed: {e}'}), 503
+
+    payload = _ai_reports_payload(store)
+    payload['generated'] = False
+    payload['reason'] = 'not_due'
+    return jsonify(payload)
+
+
+@app.route('/api/ai-reports/generate', methods=['POST'])
+def ai_reports_generate():
+    """Manually generate and persist a fresh AI report."""
+    try:
+        report, next_due = _generate_ai_report(trigger='manual')
+        payload = _ai_reports_payload(_load_ai_reports_store())
+        payload['generated'] = True
+        payload['reason'] = 'manual'
+        payload['newReportId'] = report.get('id')
+        payload['nextScheduledAt'] = _utc_iso(next_due)
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({'error': f'AI report generation failed: {e}'}), 503
 
 
 @app.route('/api/health')
@@ -1228,6 +1346,212 @@ CHART_CONTEXT_KEYS = {
         'realRates':        s.get('realRates'),
     },
 }
+
+
+def _utc_iso(dt):
+    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _parse_utc_iso(text):
+    if not text:
+        return None
+    for fmt in ('%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S.%fZ'):
+        try:
+            return datetime.strptime(text, fmt)
+        except Exception:
+            pass
+    return None
+
+
+def _first_of_next_month(dt):
+    year = dt.year + (1 if dt.month == 12 else 0)
+    month = 1 if dt.month == 12 else dt.month + 1
+    return datetime(year, month, 1)
+
+
+def _next_ai_schedule(last_generated_at=None):
+    base = datetime(2025, 4, 1)
+    if last_generated_at:
+        dt = _parse_utc_iso(last_generated_at)
+        if dt:
+            return _first_of_next_month(datetime(dt.year, dt.month, 1))
+    return base
+
+
+def _load_ai_reports_store():
+    if not os.path.exists(AI_REPORTS_PATH):
+        return {'reports': []}
+    try:
+        with open(AI_REPORTS_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {'reports': []}
+        reports = data.get('reports', [])
+        if not isinstance(reports, list):
+            reports = []
+        data['reports'] = reports
+        return data
+    except Exception:
+        return {'reports': []}
+
+
+def _save_ai_reports_store(store):
+    os.makedirs(os.path.dirname(AI_REPORTS_PATH), exist_ok=True)
+    with open(AI_REPORTS_PATH, 'w') as f:
+        json.dump(store, f, indent=2)
+
+
+def _pct_change(current, past):
+    if current is None or past in (None, 0):
+        return None
+    try:
+        return round((current - past) / past * 100, 2)
+    except Exception:
+        return None
+
+
+def _build_ai_snapshot():
+    status = {}
+    try:
+        with open(STATUS_JSON_PATH) as f:
+            status = json.load(f)
+    except Exception:
+        status = {}
+
+    yf = {}
+    try:
+        with open(cache_path('yfinance.json')) as f:
+            yf = json.load(f)
+    except Exception:
+        yf = {}
+
+    futures = yf.get('gold_futures') if isinstance(yf.get('gold_futures'), list) else []
+    closes = [r.get('close') for r in futures if isinstance(r, dict) and r.get('close') is not None]
+    dated = [r for r in futures if isinstance(r, dict) and r.get('close') is not None and r.get('date')]
+    current = closes[-1] if closes else status.get('currentGoldPrice')
+
+    def lag_price(n):
+        return closes[-1 - n] if len(closes) > n else None
+
+    ytd_price = None
+    if dated:
+        current_year = str(dated[-1]['date'])[:4]
+        for row in dated:
+            if str(row.get('date', '')).startswith(current_year):
+                ytd_price = row.get('close')
+                break
+
+    support20 = min(closes[-20:]) if len(closes) >= 20 else (min(closes) if closes else None)
+    resistance20 = max(closes[-20:]) if len(closes) >= 20 else (max(closes) if closes else None)
+    support60 = min(closes[-60:]) if len(closes) >= 60 else (min(closes) if closes else None)
+    resistance60 = max(closes[-60:]) if len(closes) >= 60 else (max(closes) if closes else None)
+
+    tic_total = None
+    tic_block = status.get('ticHoldings') if isinstance(status, dict) else None
+    if isinstance(tic_block, dict) and isinstance(tic_block.get('summary'), list):
+        vals = [x.get('latest_bn') for x in tic_block['summary'] if isinstance(x, dict) and x.get('latest_bn') is not None]
+        if vals:
+            tic_total = round(sum(vals), 1)
+
+    return {
+        'generated_at': _utc_iso(datetime.utcnow()),
+        'gold': {
+            'current_price': current,
+            'as_of': dated[-1]['date'] if dated else status.get('lastDate'),
+            'changes_pct': {
+                'daily': _pct_change(current, lag_price(1)),
+                'weekly': _pct_change(current, lag_price(5)),
+                'monthly': _pct_change(current, lag_price(21)),
+                'ytd': _pct_change(current, ytd_price),
+            },
+            'support_resistance': {
+                'support_20d': round(support20, 2) if support20 is not None else None,
+                'resistance_20d': round(resistance20, 2) if resistance20 is not None else None,
+                'support_60d': round(support60, 2) if support60 is not None else None,
+                'resistance_60d': round(resistance60, 2) if resistance60 is not None else None,
+            },
+            'history_1y': [{'date': r['date'], 'close': r['close']} for r in dated[-252:]],
+        },
+        'macro': {
+            'real_rates': status.get('realRates'),
+            'cot': status.get('cot'),
+            'ratios': status.get('ratios'),
+            'scorecard': status.get('scorecard'),
+        },
+        'dedollarization': {
+            'tic_holdings': status.get('ticHoldings'),
+            'wgc_imf_gap': status.get('wgcImfGap'),
+            'tic_priority_total_bn': tic_total,
+        },
+        'freshness': status.get('dataFreshness'),
+    }
+
+
+def _generate_ai_report(trigger='manual'):
+    snapshot = _build_ai_snapshot()
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        raise ValueError('Analysis service not configured (missing API key)')
+
+    prompt_text = (
+        "You are a senior gold market strategist. Write a comprehensive gold market report using only the JSON data below.\n\n"
+        "JSON DATA:\n" + json.dumps(snapshot, indent=2) + "\n\n"
+        "Required sections with short headings:\n"
+        "1) Current Price Action & Trend\n"
+        "2) Key Support & Resistance Levels\n"
+        "3) Macro Context (USD, rates, geopolitical risk)\n"
+        "4) Bullish vs Bearish Signals\n"
+        "5) Outlook (short-term and long-term)\n"
+        "6) Final Verdict\n\n"
+        "Rules: cite specific numbers from data, keep it concise and practical, no markdown tables, max 700 words."
+    )
+
+    from anthropic import Anthropic as _Anthropic
+    client = _Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model='claude-sonnet-4-20250514',
+        max_tokens=1200,
+        temperature=0.25,
+        messages=[{'role': 'user', 'content': prompt_text}],
+    )
+    analysis_text = msg.content[0].text.strip()
+
+    now_iso = _utc_iso(datetime.utcnow())
+    report = {
+        'id': 'rep_' + datetime.utcnow().strftime('%Y%m%d_%H%M%S'),
+        'generated_at': now_iso,
+        'trigger': trigger,
+        'gold_price': snapshot.get('gold', {}).get('current_price'),
+        'gold_as_of': snapshot.get('gold', {}).get('as_of'),
+        'snapshot': snapshot,
+        'analysis': analysis_text,
+    }
+
+    store = _load_ai_reports_store()
+    reports = store.get('reports', [])
+    reports.insert(0, report)
+    store['reports'] = reports[:120]
+    store['updated_at'] = now_iso
+    _save_ai_reports_store(store)
+
+    return report, _next_ai_schedule(report.get('generated_at'))
+
+
+def _ai_reports_payload(store):
+    reports = store.get('reports', []) if isinstance(store, dict) else []
+    reports = sorted(reports, key=lambda x: x.get('generated_at', ''), reverse=True)
+    latest_at = reports[0].get('generated_at') if reports else None
+    next_due = _next_ai_schedule(latest_at)
+    return {
+        'reports': reports,
+        'count': len(reports),
+        'latestGeneratedAt': latest_at,
+        'nextScheduledAt': _utc_iso(next_due),
+        'schedule': {
+            'first_auto_start': '2025-04-01T00:00:00Z',
+            'rule': 'monthly_on_day_1',
+        },
+    }
 
 
 def _check_rate_limit(ip):

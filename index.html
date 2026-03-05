@@ -888,6 +888,94 @@
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* AI Analysis tab */
+  .ai-report-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .ai-report-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.6;
+  }
+  .ai-report-generate {
+    padding: 6px 12px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .ai-report-generate:hover {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+  }
+  .ai-report-generate:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+  .ai-report-archive {
+    max-height: 640px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-right: 4px;
+  }
+  .ai-report-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+  }
+  .ai-report-head {
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: var(--text-primary);
+    text-align: left;
+    padding: 10px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: inherit;
+  }
+  .ai-report-head:hover { background: var(--bg-hover); }
+  .ai-report-title {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .ai-report-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ai-report-body {
+    border-top: 1px solid var(--border-color);
+    padding: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.65;
+  }
+  .ai-report-body.hidden { display: none; }
+  .ai-report-loading {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    padding: 12px;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+
   /* Mobile: collapse analysis text behind a toggle */
   @media (max-width: 768px) {
     .ai-panel-hint { display: none; }
@@ -1007,8 +1095,8 @@
             <button class="tab" data-tab="countries">Countries</button>
             <button class="tab" data-tab="sources">Sources</button>
             <button class="tab" data-tab="dedollarization" onclick="initDedollarTab()">Dedollarization</button>
+            <button class="tab" data-tab="ai-analysis" onclick="initAiAnalysisTab()">AI Analysis</button>
             <button class="tab" data-tab="market-structure" onclick="initMarketStructure()">Market Structure</button>
-            <button class="tab" data-tab="swiss-trade" onclick="initSwissPage()">Swiss Trade</button>
         </div>
 
         <!-- Overview Section -->
@@ -1842,7 +1930,6 @@
             </div>
           </div>
         
-          <!-- Swiss Trade Flows -->
           <!-- Data sources footer -->
           <div class="analytics-sources">
             <span>Sources:</span>
@@ -1880,14 +1967,14 @@
                     <div class="stat-change" style="color:var(--text-muted);">~45 day lag</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">China Treasury Holdings</div>
+                    <div class="stat-label">All Countries Treasury Holdings</div>
                     <div class="stat-value" id="tic-china-latest" style="font-size:16px;">—</div>
                     <div class="stat-change" id="tic-china-change">—</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">China 12M Change</div>
+                    <div class="stat-label">All Countries 12M Change</div>
                     <div class="stat-value" id="tic-china-12m" style="font-size:16px;">—</div>
-                    <div class="stat-change" style="color:var(--text-muted);">vs prior year</div>
+                    <div class="stat-change" style="color:var(--text-muted);">vs prior year (aggregate)</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">WGC vs IMF Gap (Latest Q)</div>
@@ -1903,6 +1990,12 @@
                         <div class="chart-subtitle">USD billions, monthly — Source: US Treasury TIC</div>
                     </div>
                     <div class="chart-controls">
+                        <select id="ticViewSelect" onchange="updateTicChart()"
+                            style="font-size:11px;padding:4px 8px;background:var(--bg-secondary);
+                                   border:1px solid var(--border);color:var(--text-primary);border-radius:4px;">
+                            <option value="country" selected>Country</option>
+                            <option value="alignment_stacked">Alignment Stacked</option>
+                        </select>
                         <select id="ticCountrySelect" onchange="updateTicChart()"
                             style="font-size:11px;padding:4px 8px;background:var(--bg-secondary);
                                    border:1px solid var(--border);color:var(--text-primary);border-radius:4px;">
@@ -1927,19 +2020,17 @@
                 <div style="height:260px;padding:0 16px 16px;">
                     <canvas id="ticChart"></canvas>
                 </div>
+                <div id="ticAlignmentLegend" style="display:flex;gap:14px;align-items:center;padding:0 16px 8px;font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3fb950;margin-right:6px;"></span>US-Aligned</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d29922;margin-right:6px;"></span>China-Aligned</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#58a6ff;margin-right:6px;"></span>Neutral</span>
+                </div>
+                <div id="ticAlignmentNames" style="padding:0 16px 12px;font-size:10px;color:var(--text-muted);line-height:1.5;font-family:'JetBrains Mono',monospace;">
+                    Loading alignment groups…
+                </div>
             </div>
 
-            <div class="chart-card" style="margin-bottom:16px;">
-                <div class="chart-header">
-                    <div>
-                        <div class="chart-title">CB Gold Demand: WGC Estimate vs IMF Confirmed</div>
-                        <div class="chart-subtitle">Quarterly net purchases (tonnes) — gap = unreported accumulation</div>
-                    </div>
-                </div>
-                <div style="height:280px;padding:0 16px 16px;">
-                    <canvas id="wgcImfGapChart"></canvas>
-                </div>
-            </div>
+            
 
             <div class="table-container">
                 <div class="table-header">
@@ -1954,16 +2045,26 @@
                         <thead>
                             <tr>
                                 <th>Country</th>
+                                <th>Geopolitical Alignment</th>
                                 <th>Holdings ($B)</th>
                                 <th>1M Change</th>
                                 <th>2M Change</th>
                                 <th>6M Change</th>
                                 <th>1Y Change</th>
+                                <th>2Y Change</th>
+                                <th>3Y Change</th>
+                                <th>4Y Change</th>
+                                <th>5Y Change</th>
+                                <th>6Y Change</th>
+                                <th>7Y Change</th>
+                                <th>8Y Change</th>
+                                <th>9Y Change</th>
+                                <th>10Y Change</th>
                                 <th>Trend</th>
                             </tr>
                         </thead>
                         <tbody id="ticTableBody">
-                            <tr><td colspan="7" style="color:var(--text-muted);font-size:12px;
+                            <tr><td colspan="17" style="color:var(--text-muted);font-size:12px;
                                 padding:16px;">Loading…</td></tr>
                         </tbody>
                     </table>
@@ -1978,78 +2079,29 @@
 
         </section>
 
-        <!-- Swiss Trade Flows Page -->
-        <section class="content-section" id="swiss-trade">
-          <div class="table-container">
-            <div class="table-header">
-              <div class="table-title">
-                Swiss Gold Trade Flows
-                <span id="st-signal-badge" class="badge" style="margin-left:8px;font-size:11px;"></span>
-              </div>
-              <div class="table-actions">
-                <div class="search-box">
-                  <input type="text" id="st-country-search" placeholder="Search countries..." oninput="filterSwissCountries()">
+        <section class="content-section" id="ai-analysis">
+            <div class="chart-card" style="margin-bottom:16px;">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">AI Gold Market Reports</div>
+                        <div class="chart-subtitle">Claude-generated monthly analysis with full market data snapshots</div>
+                    </div>
                 </div>
-                <button class="btn" onclick="document.getElementById('st-import-file').click()" style="font-size:12px;padding:5px 12px;">&#8593; Upload CSV</button>
-                <input type="file" id="st-import-file" accept=".csv" style="display:none;" onchange="handleSwissUpload(event)">
-              </div>
+
+                <div class="ai-report-toolbar">
+                    <div class="ai-report-meta">
+                        <div>Last report: <span id="ai-last-report">—</span></div>
+                        <div>Next scheduled report: <span id="ai-next-report">—</span></div>
+                        <div>Countdown: <span id="ai-countdown">—</span></div>
+                    </div>
+                    <button class="ai-report-generate" id="ai-generate-btn" onclick="generateAiReportNow()">Generate Now</button>
+                </div>
+
+                <div id="ai-report-loading" class="ai-report-loading">Loading AI report archive…</div>
+                <div id="ai-report-archive" class="ai-report-archive"></div>
             </div>
-
-            <div class="chart-loading" id="st-loading">Loading data…</div>
-
-            <div id="st-no-data" style="display:none;padding:24px 0;color:var(--text-muted);font-size:13px;">
-              No Swiss import data yet. Download the English CSV from
-              <a href="https://www.i14y.admin.ch/en/catalog/datasets/BAZG_GOLD_LAND/distributions" target="_blank" style="color:var(--accent-blue);">i14y.admin.ch</a>
-              then upload it with the button above.
-            </div>
-
-            <div id="st-content" style="display:none;">
-              <div id="st-signal-reason" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;padding:8px 10px;background:var(--bg-secondary);border-radius:4px;border-left:3px solid var(--border-color);"></div>
-
-              <div class="stat-cards-row" style="margin-bottom:16px;">
-                <div class="stat-item">
-                  <div class="stat-label">Latest Period</div>
-                  <div class="stat-value accent" id="st-stat-period">—</div>
-                  <div class="stat-change" id="st-stat-lag" style="color:var(--text-muted);"></div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">Latest Month (t)</div>
-                  <div class="stat-value" id="st-stat-latest">—</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">3-Month Rolling (t)</div>
-                  <div class="stat-value" id="st-stat-3m">—</div>
-                </div>
-                <div class="stat-item">
-                  <div class="stat-label">YoY Change</div>
-                  <div class="stat-value" id="st-stat-yoy">—</div>
-                </div>
-              </div>
-
-              <div class="chart-container" style="margin-bottom:24px;height:200px;">
-                <canvas id="st-chart-imports"></canvas>
-              </div>
-
-              <div class="table-scroll">
-                <table id="st-countries-table" style="width:100%;">
-                  <thead>
-                    <tr>
-                      <th style="text-align:left;">Country</th>
-                      <th style="text-align:right;">Latest (t)</th>
-                      <th style="text-align:right;">3M Total (t)</th>
-                      <th style="text-align:right;">3M vs Prior 3M</th>
-                      <th style="text-align:right;">Share %</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="st-countries-tbody"></tbody>
-                </table>
-              </div>
-
-              <div id="st-upload-status" style="display:none;margin-top:12px;font-size:12px;padding:8px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;"></div>
-            </div>
-          </div>
         </section>
+
 
     </main>
 
@@ -2172,16 +2224,6 @@
             'SA': { name: 'Saudi Arabia', holdings: { '2020-Q3': 323, '2021-Q3': 323, '2022-Q3': 323, '2023-Q3': 323, '2024-Q3': 323, '2025-Q3': 323 } }
         };
 
-        const topBuyersQ3 = [
-            { country: 'Poland', tonnes: 42 },
-            { country: 'Kazakhstan', tonnes: 41 },
-            { country: 'Turkey', tonnes: 40 },
-            { country: 'Azerbaijan', tonnes: 35 },
-            { country: 'India', tonnes: 32 },
-            { country: 'Brazil', tonnes: 31 },
-            { country: 'China', tonnes: 26 }
-        ];
-
         // Chart instances
         let quarterlyPurchasesChart, topBuyersChartInstance, priceVsPurchasesChart;
         let jewelryChartInstance, barCoinChartInstance, etfChartInstance, etfMomentumChartInstance, demandPieChartInstance;
@@ -2217,10 +2259,15 @@
                     if (imf && imf.countries) {
                         Object.entries(imf.countries).forEach(([code, info]) => {
                             if (countryQuarterlyData[code]) {
-                                // WGC data is authoritative — only fill quarters not already present
+                                // WGC data is authoritative — only extend beyond the last WGC quarter.
+                                // Filling historical interior gaps causes false volatility for static
+                                // holders (DE, FR, IT, JP, NL, CH, RU) because USD→tonnes conversion
+                                // uses slightly different prices than IMF used to compute market value.
                                 const existing = countryQuarterlyData[code].holdings;
+                                const wgcQuarters = Object.keys(existing).sort();
+                                const lastWgcQ = wgcQuarters.length > 0 ? wgcQuarters[wgcQuarters.length - 1] : null;
                                 Object.entries(info.quarters).forEach(([q, v]) => {
-                                    if (!(q in existing)) existing[q] = v;
+                                    if (!(q in existing) && (!lastWgcQ || q > lastWgcQ)) existing[q] = v;
                                 });
                             } else {
                                 countryQuarterlyData[code] = { name: info.name, holdings: info.quarters };
@@ -2368,27 +2415,39 @@
         function createTopBuyersChart() {
             const ctx = document.getElementById('topBuyersChart').getContext('2d');
 
-            // Find the latest Q3 available across all countries
-            const allQ3s = [];
+            // Find the latest quarter that has year-over-year comparison data for ≥3 countries.
+            // This picks up Q4 when IMF data is available, otherwise falls back to Q3 (WGC).
+            const quarterYoYCount = {};
             Object.values(countryQuarterlyData).forEach(c => {
-                Object.keys(c.holdings).filter(q => q.endsWith('-Q3')).forEach(q => allQ3s.push(q));
+                Object.keys(c.holdings).forEach(q => {
+                    const [yr, qn] = q.split('-');
+                    const prevYearQ = `${parseInt(yr) - 1}-${qn}`;
+                    if (c.holdings[prevYearQ] != null) {
+                        quarterYoYCount[q] = (quarterYoYCount[q] || 0) + 1;
+                    }
+                });
             });
-            const latestQ3 = allQ3s.sort().pop() || '2025-Q3';
-            const prevQ3   = (parseInt(latestQ3.slice(0, 4)) - 1) + '-Q3';
+            const latestQ = Object.keys(quarterYoYCount)
+                .filter(q => quarterYoYCount[q] >= 3)
+                .sort()
+                .pop() || '2025-Q3';
+            const [latestYr, latestQn] = latestQ.split('-');
+            const prevYearQ = `${parseInt(latestYr) - 1}-${latestQn}`;
 
-            // Net purchases = latestQ3 holdings minus prevQ3 holdings
+            // Net purchases = year-over-year change (same quarter, current vs previous year)
             const buyers = Object.entries(countryQuarterlyData)
                 .map(([code, data]) => {
-                    const curr = data.holdings[latestQ3] || 0;
-                    const prev = data.holdings[prevQ3]   || curr;
+                    const curr = data.holdings[latestQ];
+                    const prev = data.holdings[prevYearQ];
+                    if (curr == null || prev == null) return null;
                     return { country: data.name, tonnes: Math.round(curr - prev) };
                 })
-                .filter(b => b.tonnes > 0)
+                .filter(b => b != null && b.tonnes > 0)
                 .sort((a, b) => b.tonnes - a.tonnes)
                 .slice(0, 7);
 
             const titleEl = document.getElementById('topBuyersChartTitle');
-            if (titleEl) titleEl.textContent = 'Top Buyers ' + latestQ3.replace('-', ' ');
+            if (titleEl) titleEl.textContent = 'Top Buyers ' + latestQ.replace('-', ' ');
 
             if (topBuyersChartInstance) topBuyersChartInstance.destroy();
             topBuyersChartInstance = new Chart(ctx, {
@@ -2418,9 +2477,9 @@
 
         function createPriceVsPurchasesChart() {
             const ctx = document.getElementById('priceVsPurchasesChart').getContext('2d');
-            const quarters = Object.keys(quarterlyData.goldPrice).slice(-40);
-            const priceData = quarters.map(q => quarterlyData.goldPrice[q]);
-            const purchaseData = quarters.map(q => quarterlyData.netPurchases[q] || 0);
+            const quarters = Object.keys(quarterlyData.goldPrice).sort().slice(-40);
+            const priceData = quarters.map(q => quarterlyData.goldPrice[q] != null ? Math.round(quarterlyData.goldPrice[q]) : null);
+            const purchaseData = quarters.map(q => quarterlyData.netPurchases[q] != null ? quarterlyData.netPurchases[q] : null);
 
             priceVsPurchasesChart = new Chart(ctx, {
                 type: 'line',
@@ -2435,6 +2494,7 @@
                             fill: true,
                             tension: 0.3,
                             yAxisID: 'y',
+                            spanGaps: false,
                         },
                         {
                             label: 'CB Purchases (t)',
@@ -2443,6 +2503,7 @@
                             backgroundColor: 'transparent',
                             tension: 0.3,
                             yAxisID: 'y1',
+                            spanGaps: false,
                         }
                     ]
                 },
@@ -2451,10 +2512,17 @@
                     maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: { display: true, position: 'top', labels: { boxWidth: 12, padding: 20 } }
+                        legend: { display: true, position: 'top', labels: { boxWidth: 12, padding: 20 } },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ctx.dataset.yAxisID === 'y'
+                                    ? `Gold Price: $${Math.round(ctx.parsed.y).toLocaleString()}/oz`
+                                    : `CB Purchases: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}t`
+                            }
+                        }
                     },
                     scales: {
-                        y: { type: 'linear', position: 'left', grid: { color: '#2d3a4a' }, ticks: { callback: v => `$${v}` } },
+                        y: { type: 'linear', position: 'left', grid: { color: '#2d3a4a' }, ticks: { callback: v => `$${Math.round(v).toLocaleString()}` } },
                         y1: { type: 'linear', position: 'right', grid: { display: false }, ticks: { callback: v => `${v}t` } },
                         x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } }
                     }
@@ -3273,7 +3341,7 @@
                     <td>${r.q}</td>
                     <td class="${r.purchases >= 0 ? 'positive' : 'negative'}">${r.purchases >= 0 ? '+' : ''}${r.purchases}</td>
                     <td>${typeof r.holdings === 'number' ? r.holdings.toLocaleString() : r.holdings}</td>
-                    <td>${typeof r.price === 'number' ? '$' + r.price.toLocaleString() : r.price}</td>
+                    <td>${typeof r.price === 'number' ? '$' + Math.round(r.price).toLocaleString() : r.price}</td>
                     <td class="${r.change >= 0 ? 'positive' : 'negative'}">${r.change >= 0 ? '+' : ''}${r.change}t</td>
                 </tr>
             `).join('');
@@ -3303,8 +3371,10 @@
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 _ticData = await resp.json();
 
+                populateTicCountrySelect();
                 populateTicStatCards();
                 populateTicTable();
+                renderTicAlignmentNames();
                 createTicChart();
 
                 // WGC vs IMF gap from status.json
@@ -3318,41 +3388,151 @@
                 }
             } catch (e) {
                 document.getElementById('ticTableBody').innerHTML =
-                    `<tr><td colspan="7" style="color:var(--negative);font-size:12px;padding:16px;">
+                    `<tr><td colspan="17" style="color:var(--negative);font-size:12px;padding:16px;">
                         Failed to load: ${e.message}
                     </td></tr>`;
             }
         }
 
+        function renderTicAlignmentNames() {
+            const el = document.getElementById('ticAlignmentNames');
+            if (!el || !_ticData?.countries) return;
+
+            const rows = Object.entries(_ticData.countries)
+                .map(([name, d]) => ({ name, latest: Number(d?.latest || 0) }))
+                .filter(r => r.latest > 0)
+                .sort((a, b) => b.latest - a.latest);
+
+            const groups = {
+                'US-Aligned': [],
+                'China-Aligned': [],
+                'Neutral': [],
+            };
+
+            rows.forEach((r) => {
+                groups[getTicAlignment(r.name)].push(r.name);
+            });
+
+            const fmt = (arr) => arr.length ? arr.join(', ') : '—';
+            el.innerHTML =
+                `<div><strong style="color:#3fb950;">US-Aligned:</strong> ${fmt(groups['US-Aligned'])}</div>` +
+                `<div><strong style="color:#d29922;">China-Aligned:</strong> ${fmt(groups['China-Aligned'])}</div>` +
+                `<div><strong style="color:#58a6ff;">Neutral:</strong> ${fmt(groups['Neutral'])}</div>`;
+        }
+
+        function populateTicCountrySelect() {
+            const sel = document.getElementById('ticCountrySelect');
+            if (!sel || !_ticData?.countries) return;
+
+            const current = sel.value || 'China';
+            const byLatest = Object.entries(_ticData.countries)
+                .filter(([, d]) => d && d.latest != null)
+                .sort((a, b) => (b[1].latest || 0) - (a[1].latest || 0));
+
+            const priority = [
+                'China', 'Japan', 'India', 'Saudi Arabia', 'Turkey', 'Poland',
+                'Brazil', 'South Korea', 'United Kingdom', 'Germany', 'France',
+                'Switzerland', 'Taiwan', 'Singapore', 'Belgium', 'Luxembourg',
+                'Canada', 'Cayman Islands', 'Norway', 'Netherlands', 'UAE',
+                'Qatar', 'Hong Kong', 'Russia'
+            ];
+
+            const finalList = [];
+            const seen = new Set();
+
+            priority.forEach((c) => {
+                if (_ticData.countries[c] && !seen.has(c)) {
+                    seen.add(c);
+                    finalList.push(c);
+                }
+            });
+            byLatest.forEach(([c]) => {
+                if (!seen.has(c)) {
+                    seen.add(c);
+                    finalList.push(c);
+                }
+            });
+
+            const options = ['__ALL__', ...finalList];
+            sel.innerHTML = options.map(c => {
+                const label = c === '__ALL__' ? 'All Countries (sum)' : c;
+                return `<option value="${c}">${label}</option>`;
+            }).join('');
+
+            const fallback = seen.has('China') ? 'China' : (finalList[0] || '__ALL__');
+            sel.value = options.includes(current) ? current : fallback;
+        }
+
+        function getTicAlignment(country) {
+            const usAligned = new Set([
+                'United Kingdom', 'Japan', 'South Korea', 'Australia', 'Canada',
+                'Israel', 'Saudi Arabia', 'Germany', 'France', 'Belgium',
+                'Luxembourg', 'Netherlands', 'Norway', 'Taiwan', 'Poland'
+            ]);
+            const chinaAligned = new Set([
+                'China', 'Russia', 'Hong Kong', 'Iran', 'North Korea',
+                'Pakistan', 'Venezuela', 'Cambodia'
+            ]);
+            if (usAligned.has(country)) return 'US-Aligned';
+            if (chinaAligned.has(country)) return 'China-Aligned';
+            return 'Neutral';
+        }
+
         function populateTicStatCards() {
-            if (!_ticData) return;
-            const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun',
-                            'Jul','Aug','Sep','Oct','Nov','Dec'];
+            if (!_ticData?.countries) return;
+            const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
             const latestEl = document.getElementById('tic-latest-month');
             if (latestEl && _ticData.latest_month) {
                 const [y, m] = _ticData.latest_month.split('-');
-                latestEl.textContent = (MONTHS[parseInt(m)] || m) + ' ' + y;
+                latestEl.textContent = (MONTHS[parseInt(m, 10)] || m) + ' ' + y;
             }
 
-            const china = _ticData.countries?.['China'];
-            if (china) {
-                const elH   = document.getElementById('tic-china-latest');
-                const elChg = document.getElementById('tic-china-change');
-                const el12m = document.getElementById('tic-china-12m');
-                if (elH) elH.textContent = china.latest != null
-                    ? '$' + china.latest.toLocaleString() + 'B' : '—';
-                if (elChg && china.change_1m != null) {
-                    const s = china.change_1m >= 0 ? '+' : '';
-                    elChg.textContent = s + china.change_1m + 'B MoM';
-                    elChg.className   = 'stat-change ' + (china.change_1m >= 0 ? 'positive' : 'negative');
+            const countries = Object.values(_ticData.countries).filter(d => d && d.latest != null);
+            const totalLatest = countries.reduce((acc, d) => acc + Number(d.latest || 0), 0);
+
+            const monthTotals = {};
+            countries.forEach((d) => {
+                (d.series || []).forEach((pt) => {
+                    if (pt.month && pt.holdings_bn != null) {
+                        monthTotals[pt.month] = (monthTotals[pt.month] || 0) + Number(pt.holdings_bn);
+                    }
+                });
+            });
+            const months = Object.keys(monthTotals).sort();
+            const latestMonth = months.length ? months[months.length - 1] : null;
+            const prevMonth = months.length > 1 ? months[months.length - 2] : null;
+            const prevYearMonth = months.length > 12 ? months[months.length - 13] : null;
+
+            const agg1m = (latestMonth && prevMonth) ? Number((monthTotals[latestMonth] - monthTotals[prevMonth]).toFixed(1)) : null;
+            const agg12m = (latestMonth && prevYearMonth) ? Number((monthTotals[latestMonth] - monthTotals[prevYearMonth]).toFixed(1)) : null;
+
+            const elH   = document.getElementById('tic-china-latest');
+            const elChg = document.getElementById('tic-china-change');
+            const el12m = document.getElementById('tic-china-12m');
+
+            if (elH) elH.textContent = '$' + totalLatest.toLocaleString(undefined, {maximumFractionDigits: 1}) + 'B';
+            if (elChg) {
+                if (agg1m != null) {
+                    const sgn = agg1m >= 0 ? '+' : '';
+                    elChg.textContent = sgn + agg1m.toLocaleString() + 'B MoM';
+                    elChg.className = 'stat-change ' + (agg1m >= 0 ? 'positive' : 'negative');
+                } else {
+                    elChg.textContent = '—';
+                    elChg.className = 'stat-change';
                 }
-                if (el12m && china.change_12m != null) {
-                    const s = china.change_12m >= 0 ? '+' : '';
-                    el12m.textContent  = s + china.change_12m.toLocaleString() + 'B';
-                    el12m.className    = 'stat-value ' + (china.change_12m >= 0 ? 'positive' : 'negative');
-                    el12m.style.fontSize = '16px';
+            }
+            if (el12m) {
+                if (agg12m != null) {
+                    const sgn = agg12m >= 0 ? '+' : '';
+                    el12m.textContent = sgn + agg12m.toLocaleString() + 'B';
+                    el12m.className = 'stat-value ' + (agg12m >= 0 ? 'positive' : 'negative');
+                } else {
+                    el12m.textContent = '—';
+                    el12m.className = 'stat-value';
                 }
+                el12m.style.fontSize = '16px';
             }
         }
 
@@ -3360,17 +3540,10 @@
             const tbody = document.getElementById('ticTableBody');
             if (!tbody || !_ticData?.countries) return;
 
-            const order = [
-                'Japan','China','United Kingdom','Belgium','Canada','Luxembourg',
-                'India','Germany','France','Switzerland','Taiwan','Singapore',
-                'South Korea','Saudi Arabia','Brazil','Turkey','Poland',
-                'Norway','Netherlands','UAE','Qatar','Hong Kong',
-            ];
-
-            const rows = order
-                .map(c => ({ name: c, ..._ticData.countries[c] }))
+            const rows = Object.entries(_ticData.countries)
+                .map(([name, d]) => ({ name, ...d }))
                 .filter(r => r.latest != null)
-                .sort((a, b) => b.latest - a.latest);
+                .sort((a, b) => (b.latest || 0) - (a.latest || 0));
 
             const calcDelta = (series, monthsBack) => {
                 if (!Array.isArray(series) || !series.length) return null;
@@ -3386,10 +3559,19 @@
                     ? `<span class="${val >= 0 ? 'positive' : 'negative'}">${val >= 0 ? '+' : ''}${val.toLocaleString()}${suffix}</span>`
                     : '—';
 
-                const c1  = r.change_1m != null ? r.change_1m : calcDelta(r.series, 1);
-                const c2  = calcDelta(r.series, 2);
-                const c6  = calcDelta(r.series, 6);
-                const c12 = r.change_12m != null ? r.change_12m : calcDelta(r.series, 11);
+                const c1   = r.change_1m   != null ? r.change_1m   : calcDelta(r.series, 1);
+                const c2   = r.change_2m   != null ? r.change_2m   : calcDelta(r.series, 2);
+                const c6   = r.change_6m   != null ? r.change_6m   : calcDelta(r.series, 6);
+                const c12  = r.change_12m  != null ? r.change_12m  : calcDelta(r.series, 12);
+                const c24  = r.change_24m  != null ? r.change_24m  : calcDelta(r.series, 24);
+                const c36  = r.change_36m  != null ? r.change_36m  : calcDelta(r.series, 36);
+                const c48  = r.change_48m  != null ? r.change_48m  : calcDelta(r.series, 48);
+                const c60  = r.change_60m  != null ? r.change_60m  : calcDelta(r.series, 60);
+                const c72  = r.change_72m  != null ? r.change_72m  : calcDelta(r.series, 72);
+                const c84  = r.change_84m  != null ? r.change_84m  : calcDelta(r.series, 84);
+                const c96  = r.change_96m  != null ? r.change_96m  : calcDelta(r.series, 96);
+                const c108 = r.change_108m != null ? r.change_108m : calcDelta(r.series, 108);
+                const c120 = r.change_120m != null ? r.change_120m : calcDelta(r.series, 120);
 
                 const trend = c12 == null ? '—'
                     : c12 >= 10  ? '↑ Accumulating'
@@ -3397,57 +3579,145 @@
                     : '→ Stable';
                 const trendCls = c12 >= 10 ? 'positive'
                                : c12 != null && c12 <= -10 ? 'negative' : '';
+
                 return `
                     <tr>
                         <td><strong>${r.name}</strong></td>
+                        <td style="font-size:11px;font-family:'JetBrains Mono',monospace;">${getTicAlignment(r.name)}</td>
                         <td>$${r.latest.toLocaleString()}B</td>
                         <td>${fmt(c1, 'B')}</td>
                         <td>${fmt(c2, 'B')}</td>
                         <td>${fmt(c6, 'B')}</td>
                         <td>${fmt(c12, 'B')}</td>
-                        <td class="${trendCls}" style="font-size:11px;
-                            font-family:'JetBrains Mono',monospace;">${trend}</td>
+                        <td>${fmt(c24, 'B')}</td>
+                        <td>${fmt(c36, 'B')}</td>
+                        <td>${fmt(c48, 'B')}</td>
+                        <td>${fmt(c60, 'B')}</td>
+                        <td>${fmt(c72, 'B')}</td>
+                        <td>${fmt(c84, 'B')}</td>
+                        <td>${fmt(c96, 'B')}</td>
+                        <td>${fmt(c108, 'B')}</td>
+                        <td>${fmt(c120, 'B')}</td>
+                        <td class="${trendCls}" style="font-size:11px;font-family:'JetBrains Mono',monospace;">${trend}</td>
                     </tr>`;
             }).join('');
         }
 
         function createTicChart() {
+            const mode = document.getElementById('ticViewSelect')?.value || 'country';
             const country = document.getElementById('ticCountrySelect')?.value || 'China';
             const periods = parseInt(document.getElementById('ticPeriodSelect')?.value || '48');
-            if (!_ticData?.countries?.[country]) return;
+            if (!_ticData?.countries) return;
 
-            const series = (_ticData.countries[country].series || []).slice(-periods);
-            const labels = series.map(d => d.month);
-            const values = series.map(d => d.holdings_bn);
+            const legendEl = document.getElementById('ticAlignmentLegend');
+            if (legendEl) legendEl.style.display = (mode === 'alignment_stacked') ? 'flex' : 'none';
+
+            let chartType = 'line';
+            let labels = [];
+            let datasets = [];
+
+            if (mode === 'alignment_stacked') {
+                chartType = 'bar';
+                const buckets = {
+                    'US-Aligned': {},
+                    'China-Aligned': {},
+                    'Neutral': {},
+                };
+
+                Object.entries(_ticData.countries).forEach(([name, d]) => {
+                    const align = getTicAlignment(name);
+                    (d.series || []).forEach((pt) => {
+                        if (pt.month && pt.holdings_bn != null) {
+                            buckets[align][pt.month] = (buckets[align][pt.month] || 0) + Number(pt.holdings_bn);
+                        }
+                    });
+                });
+
+                const allMonths = new Set([
+                    ...Object.keys(buckets['US-Aligned']),
+                    ...Object.keys(buckets['China-Aligned']),
+                    ...Object.keys(buckets['Neutral'])
+                ]);
+                labels = Array.from(allMonths).sort().slice(-periods);
+
+                datasets = [
+                    {
+                        label: 'US-Aligned',
+                        data: labels.map(m => Number((buckets['US-Aligned'][m] || 0).toFixed(1))),
+                        backgroundColor: '#3fb950',
+                        borderColor: '#3fb950',
+                        borderWidth: 1,
+                        stack: 'align',
+                    },
+                    {
+                        label: 'China-Aligned',
+                        data: labels.map(m => Number((buckets['China-Aligned'][m] || 0).toFixed(1))),
+                        backgroundColor: '#d29922',
+                        borderColor: '#d29922',
+                        borderWidth: 1,
+                        stack: 'align',
+                    },
+                    {
+                        label: 'Neutral',
+                        data: labels.map(m => Number((buckets['Neutral'][m] || 0).toFixed(1))),
+                        backgroundColor: '#58a6ff',
+                        borderColor: '#58a6ff',
+                        borderWidth: 1,
+                        stack: 'align',
+                    }
+                ];
+            } else {
+                let series = [];
+                if (country === '__ALL__') {
+                    const monthTotals = {};
+                    Object.values(_ticData.countries).forEach((d) => {
+                        (d.series || []).forEach((pt) => {
+                            if (pt.month && pt.holdings_bn != null) {
+                                monthTotals[pt.month] = (monthTotals[pt.month] || 0) + Number(pt.holdings_bn);
+                            }
+                        });
+                    });
+                    series = Object.keys(monthTotals)
+                        .sort()
+                        .map((m) => ({ month: m, holdings_bn: Number(monthTotals[m].toFixed(1)) }));
+                } else {
+                    if (!_ticData.countries[country]) return;
+                    series = _ticData.countries[country].series || [];
+                }
+
+                series = series.slice(-periods);
+                labels = series.map(d => d.month);
+                datasets = [{
+                    data: labels.map((_, i) => series[i].holdings_bn),
+                    borderColor: country === '__ALL__' ? '#d29922' : '#58a6ff',
+                    backgroundColor: country === '__ALL__' ? 'rgba(210,153,34,0.12)' : 'rgba(88,166,255,0.08)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.3,
+                }];
+            }
 
             if (ticChartInstance) ticChartInstance.destroy();
-            ticChartInstance = new Chart(
-                document.getElementById('ticChart').getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [{
-                        data:            values,
-                        borderColor:     '#58a6ff',
-                        backgroundColor: 'rgba(88,166,255,0.08)',
-                        borderWidth:     2,
-                        pointRadius:     0,
-                        fill:            true,
-                        tension:         0.3,
-                    }]
-                },
+            ticChartInstance = new Chart(document.getElementById('ticChart').getContext('2d'), {
+                type: chartType,
+                data: { labels, datasets },
                 options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: mode === 'alignment_stacked' },
+                    },
                     scales: {
                         y: {
-                            grid:  { color: '#2d3a4a' },
+                            stacked: mode === 'alignment_stacked',
+                            grid: { color: '#2d3a4a' },
                             ticks: { callback: v => '$' + v.toLocaleString() + 'B' }
                         },
                         x: {
-                            grid:  { display: false },
-                            ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12,
-                                     font: { size: 10 } }
+                            stacked: mode === 'alignment_stacked',
+                            grid: { display: false },
+                            ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }
                         }
                     }
                 }
@@ -3544,6 +3814,447 @@
             _dedollarLoaded = false;
             loadDedollarData(true);
             _dedollarLoaded = true;
+        }
+
+        // ===========================================
+        // AI ANALYSIS TAB
+        // ===========================================
+        let _aiTabLoaded = false;
+        let _aiCountdownTimer = null;
+        let _aiReportState = null;
+        const AI_LOCAL_STORAGE_KEY = 'gold_tracker_ai_reports_v1';
+
+        function initAiAnalysisTab() {
+            if (!_aiTabLoaded) {
+                loadAiReports(true);
+                _aiTabLoaded = true;
+            }
+            startAiCountdown();
+        }
+
+        function escHtml(s) {
+            return String(s || '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function fmtIso(iso) {
+            if (!iso) return '—';
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+        }
+
+        function fmtPrice(v) {
+            if (v == null || Number.isNaN(Number(v))) return '—';
+            return '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+        }
+
+        function setAiLoading(isLoading, message) {
+            const el = document.getElementById('ai-report-loading');
+            if (!el) return;
+            el.style.display = isLoading ? 'block' : 'none';
+            el.textContent = message || 'Loading AI report archive…';
+        }
+
+        async function loadAiReports(autoEnsure = false) {
+            setAiLoading(true, autoEnsure ? 'Checking schedule and generating report if due…' : 'Loading AI report archive…');
+            try {
+                let data = null;
+                try {
+                    const resp = autoEnsure
+                        ? await fetch('/api/ai-reports/ensure', { method: 'POST' })
+                        : await fetch('/api/ai-reports');
+                    if (resp.ok) {
+                        const serverData = await resp.json();
+                        if (!serverData.error) data = serverData;
+                    }
+                } catch (e) { /* fallback below */ }
+
+                if (!data) {
+                    data = autoEnsure ? await ensureLocalAiReports() : getLocalAiPayload();
+                }
+                _aiReportState = data;
+                renderAiReports(data);
+                startAiCountdown();
+            } catch (e) {
+                const archive = document.getElementById('ai-report-archive');
+                if (archive) {
+                    archive.innerHTML = `<div class="ai-report-item"><div class="ai-report-body">Failed to load AI reports: ${escHtml(e.message)}</div></div>`;
+                }
+            } finally {
+                setAiLoading(false);
+            }
+        }
+
+        async function generateAiReportNow() {
+            const btn = document.getElementById('ai-generate-btn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Generating...';
+            }
+            setAiLoading(true, 'Generating report with Claude…');
+            try {
+                let data = null;
+                try {
+                    const resp = await fetch('/api/ai-reports/generate', { method: 'POST' });
+                    if (resp.ok) {
+                        const serverData = await resp.json();
+                        if (!serverData.error) data = serverData;
+                    }
+                } catch (e) { /* fallback below */ }
+                if (!data) data = await generateLocalAiReport('manual');
+                _aiReportState = data;
+                renderAiReports(data);
+                startAiCountdown();
+            } catch (e) {
+                const archive = document.getElementById('ai-report-archive');
+                if (archive) {
+                    archive.innerHTML = `<div class="ai-report-item"><div class="ai-report-body">Generation failed: ${escHtml(e.message)}</div></div>`;
+                }
+            } finally {
+                setAiLoading(false);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Now';
+                }
+            }
+        }
+
+        function renderAiReports(state) {
+            const reports = Array.isArray(state?.reports) ? state.reports : [];
+            const lastEl = document.getElementById('ai-last-report');
+            const nextEl = document.getElementById('ai-next-report');
+            if (lastEl) lastEl.textContent = reports.length ? fmtIso(reports[0].generated_at) : 'No report yet';
+            if (nextEl) nextEl.textContent = state?.nextScheduledAt ? fmtIso(state.nextScheduledAt) : '—';
+
+            const archive = document.getElementById('ai-report-archive');
+            if (!archive) return;
+            if (!reports.length) {
+                archive.innerHTML = `<div class="ai-report-item"><div class="ai-report-body">No AI reports yet. The first report will generate automatically on tab load.</div></div>`;
+                return;
+            }
+
+            archive.innerHTML = reports.map((r, i) => {
+                const title = fmtIso(r.generated_at);
+                const sub = `${fmtPrice(r.gold_price)}${r.gold_as_of ? ' • as of ' + escHtml(r.gold_as_of) : ''}${r.trigger ? ' • ' + escHtml(r.trigger) : ''}`;
+                const changes = r.snapshot?.gold?.changes_pct || {};
+                const quick = [
+                    `Daily: ${changes.daily != null ? changes.daily + '%' : '—'}`,
+                    `Weekly: ${changes.weekly != null ? changes.weekly + '%' : '—'}`,
+                    `Monthly: ${changes.monthly != null ? changes.monthly + '%' : '—'}`,
+                    `YTD: ${changes.ytd != null ? changes.ytd + '%' : '—'}`,
+                ].join(' | ');
+                return `
+                    <div class="ai-report-item">
+                        <button class="ai-report-head" onclick="toggleAiReport('${escHtml(r.id || ('idx_' + i))}')">
+                            <span>
+                                <div class="ai-report-title">${escHtml(title)}</div>
+                                <div class="ai-report-sub">${sub}</div>
+                            </span>
+                            <span class="ai-report-sub">Click to ${i === 0 ? 'collapse' : 'expand'}</span>
+                        </button>
+                        <div id="ai-report-${escHtml(r.id || ('idx_' + i))}" class="ai-report-body ${i === 0 ? '' : 'hidden'}">${escHtml(quick)}\n\n${escHtml(r.analysis || '')}</div>
+                    </div>`;
+            }).join('');
+        }
+
+        function toggleAiReport(id) {
+            const el = document.getElementById('ai-report-' + id);
+            if (!el) return;
+            el.classList.toggle('hidden');
+        }
+
+        function startAiCountdown() {
+            if (_aiCountdownTimer) clearInterval(_aiCountdownTimer);
+            updateAiCountdown();
+            _aiCountdownTimer = setInterval(updateAiCountdown, 1000);
+        }
+
+        function updateAiCountdown() {
+            const el = document.getElementById('ai-countdown');
+            if (!el) return;
+            const iso = _aiReportState?.nextScheduledAt;
+            if (!iso) {
+                el.textContent = '—';
+                return;
+            }
+            const due = new Date(iso).getTime();
+            if (!Number.isFinite(due)) {
+                el.textContent = '—';
+                return;
+            }
+            const now = Date.now();
+            const diff = due - now;
+            if (diff <= 0) {
+                el.textContent = 'Due now';
+                return;
+            }
+            const sec = Math.floor(diff / 1000);
+            const d = Math.floor(sec / 86400);
+            const h = Math.floor((sec % 86400) / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            el.textContent = `${d}d ${h}h ${m}m ${s}s`;
+        }
+
+        function getLocalAiStore() {
+            try {
+                const raw = localStorage.getItem(AI_LOCAL_STORAGE_KEY);
+                const parsed = raw ? JSON.parse(raw) : { reports: [] };
+                if (!parsed || !Array.isArray(parsed.reports)) return { reports: [] };
+                return parsed;
+            } catch (e) {
+                return { reports: [] };
+            }
+        }
+
+        function saveLocalAiStore(store) {
+            localStorage.setItem(AI_LOCAL_STORAGE_KEY, JSON.stringify(store || { reports: [] }));
+        }
+
+        function nextFirstOfMonthFrom(iso) {
+            const base = new Date('2025-04-01T00:00:00Z');
+            if (!iso) return base.toISOString();
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return base.toISOString();
+            const n = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, 0, 0, 0));
+            return n.toISOString();
+        }
+
+        function getLocalAiPayload() {
+            const store = getLocalAiStore();
+            const reports = [...(store.reports || [])].sort((a, b) => (b.generated_at || '').localeCompare(a.generated_at || ''));
+            return {
+                reports,
+                count: reports.length,
+                latestGeneratedAt: reports[0]?.generated_at || null,
+                nextScheduledAt: nextFirstOfMonthFrom(reports[0]?.generated_at || null),
+                schedule: { first_auto_start: '2025-04-01T00:00:00Z', rule: 'monthly_on_day_1' },
+                source: 'local_fallback'
+            };
+        }
+
+        function fmtNum(v, digits = 1) {
+            if (v == null || !Number.isFinite(Number(v))) return '—';
+            return Number(v).toLocaleString(undefined, { maximumFractionDigits: digits });
+        }
+
+        function getCountryYoYLeaders() {
+            const entries = Object.entries(countryQuarterlyData || {});
+            const allQ3 = new Set();
+            entries.forEach(([, d]) => Object.keys(d.holdings || {}).forEach(q => { if (q.endsWith('-Q3')) allQ3.add(q); }));
+            const sortedQ3 = [...allQ3].sort();
+            const latestQ3 = sortedQ3[sortedQ3.length - 1];
+            if (!latestQ3) return null;
+            const prevQ3 = `${Number(latestQ3.slice(0, 4)) - 1}-Q3`;
+            const deltas = entries.map(([, d]) => {
+                const cur = Number(d.holdings?.[latestQ3] ?? NaN);
+                const prev = Number(d.holdings?.[prevQ3] ?? NaN);
+                const delta = Number.isFinite(cur) && Number.isFinite(prev) ? cur - prev : null;
+                return { name: d.name, delta, current: cur, prev };
+            }).filter(x => x.delta != null).sort((a, b) => b.delta - a.delta);
+            return { latestQ3, prevQ3, topAdders: deltas.slice(0, 8), topReducers: deltas.slice(-5).reverse() };
+        }
+
+        function buildDemandSummary() {
+            const qp = quarterlyData?.netPurchases || {};
+            const keys = Object.keys(qp).sort();
+            if (!keys.length) return null;
+            const q = keys[keys.length - 1];
+            const qPrev = keys[keys.length - 2];
+            const qYoY = keys[keys.length - 5];
+            const pick = (obj, k) => (obj && k && obj[k] != null) ? Number(obj[k]) : null;
+            const fields = [
+                ['central_banks', quarterlyData?.netPurchases],
+                ['jewelry', quarterlyData?.jewelry],
+                ['bar_coin', quarterlyData?.barCoin],
+                ['etf_flows', quarterlyData?.etfFlows],
+            ];
+            const out = { latestQuarter: q, rows: [] };
+            fields.forEach(([name, obj]) => {
+                const cur = pick(obj, q);
+                const prev = pick(obj, qPrev);
+                const yoy = pick(obj, qYoY);
+                out.rows.push({
+                    name, cur, prev, yoy,
+                    qoq: (cur != null && prev != null) ? cur - prev : null,
+                    yoyDiff: (cur != null && yoy != null) ? cur - yoy : null,
+                });
+            });
+            return out;
+        }
+
+        function buildTicSummary(ticResp) {
+            const countries = ticResp?.countries || {};
+            const rows = Object.entries(countries).map(([name, d]) => ({
+                name,
+                latest: d?.latest,
+                c1: d?.change_1m,
+                c12: d?.change_12m
+            })).filter(r => r.latest != null);
+            const reducers = rows.filter(r => Number.isFinite(r.c12)).sort((a, b) => a.c12 - b.c12).slice(0, 6);
+            const accumulators = rows.filter(r => Number.isFinite(r.c12)).sort((a, b) => b.c12 - a.c12).slice(0, 6);
+            return { reducers, accumulators, latestMonth: ticResp?.latest_month };
+        }
+
+        function buildScorecardSummary(statusResp) {
+            const sc = statusResp?.scorecard || {};
+            const sigs = sc.signals || {};
+            const rows = Object.entries(sigs).map(([k, v]) => ({
+                key: k,
+                label: v?.label || k,
+                signal: v?.signal || 'neutral',
+                value: v?.value
+            }));
+            const bullish = rows.filter(r => r.signal === 'bullish');
+            const bearish = rows.filter(r => r.signal === 'bearish');
+            return {
+                composite: sc.composite || `${bullish.length}/${rows.length || 0}`,
+                bullishCount: sc.bullishSignals ?? bullish.length,
+                total: sc.totalSignals ?? rows.length,
+                bullish,
+                bearish,
+            };
+        }
+
+        async function requestChartAnalysis(chart) {
+            try {
+                const resp = await fetch('/api/analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chart })
+                });
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                return data?.analysis || null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function ensureLocalAiReports() {
+            const payload = getLocalAiPayload();
+            const reports = payload.reports || [];
+            if (!reports.length) return generateLocalAiReport('auto_initial');
+            const dueTs = new Date(payload.nextScheduledAt).getTime();
+            if (Date.now() >= dueTs) return generateLocalAiReport('auto_monthly');
+            return payload;
+        }
+
+        async function generateLocalAiReport(trigger) {
+            const [goldResp, yfResp, statusResp, ticResp] = await Promise.all([
+                fetch('/api/goldprice').then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch('/api/yfinance').then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch('/data/status.json').then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch('/api/tic').then(r => r.ok ? r.json() : null).catch(() => null),
+            ]);
+
+            const futures = Array.isArray(yfResp?.gold_futures) ? yfResp.gold_futures : [];
+            const closes = futures.map(x => Number(x.close)).filter(v => Number.isFinite(v));
+            const current = Number.isFinite(Number(goldResp?.price)) ? Number(goldResp.price) : (closes.length ? closes[closes.length - 1] : null);
+            const daily = closes.length > 1 ? (((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100) : null;
+            const weekly = closes.length > 5 ? (((closes[closes.length - 1] - closes[closes.length - 6]) / closes[closes.length - 6]) * 100) : null;
+            const monthly = closes.length > 21 ? (((closes[closes.length - 1] - closes[closes.length - 22]) / closes[closes.length - 22]) * 100) : null;
+
+            let ytd = null;
+            if (futures.length) {
+                const yr = String(futures[futures.length - 1].date || '').slice(0, 4);
+                const start = futures.find(x => String(x.date || '').startsWith(yr));
+                if (start && Number(start.close)) ytd = ((closes[closes.length - 1] - Number(start.close)) / Number(start.close)) * 100;
+            }
+
+            const support20 = closes.length ? Math.min(...closes.slice(-20)) : null;
+            const resistance20 = closes.length ? Math.max(...closes.slice(-20)) : null;
+            const support60 = closes.length ? Math.min(...closes.slice(-60)) : null;
+            const resistance60 = closes.length ? Math.max(...closes.slice(-60)) : null;
+
+            const demand = buildDemandSummary();
+            const countries = getCountryYoYLeaders();
+            const tic = buildTicSummary(ticResp);
+            const sc = buildScorecardSummary(statusResp);
+            const regime1 = statusResp?.regime1 || {};
+            const regime2 = statusResp?.regime2 || {};
+            const premiumPct = statusResp?.regimeBreakPremiumPct;
+            const premiumWeak = Number.isFinite(Number(regime2?.r2)) && Number(regime2.r2) <= 0.25;
+
+            const aiCalls = await Promise.all([
+                requestChartAnalysis('chart1'),
+                requestChartAnalysis('chart2'),
+                requestChartAnalysis('chart3'),
+                requestChartAnalysis('chart4'),
+                requestChartAnalysis('chart6'),
+                requestChartAnalysis('chart7'),
+            ]);
+
+            const topBuyerLine = countries?.topAdders?.[0]
+                ? `${countries.topAdders[0].name} was the top reported buyer in ${countries.latestQ3.slice(0,4)} (+${fmtNum(countries.topAdders[0].delta, 1)}t YoY, ${countries.prevQ3} → ${countries.latestQ3}).`
+                : 'Top buyer could not be resolved from country holdings.';
+            const dedollarLine = tic?.reducers?.length
+                ? `TIC (${tic.latestMonth || 'latest'}): strongest 12M Treasury reductions include ${tic.reducers.slice(0, 3).map(x => `${x.name} (${fmtNum(x.c12,1)}B)`).join(', ')}; largest accumulators include ${tic.accumulators.slice(0, 3).map(x => `${x.name} (+${fmtNum(x.c12,1)}B)`).join(', ')}.`
+                : 'TIC dedollarization summary unavailable.';
+            const regimeLine = (Number.isFinite(Number(premiumPct)) || regime1?.r2 != null || regime2?.r2 != null)
+                ? `Rate-model premium is ${fmtNum(premiumPct,1)}%, but regime diagnostics show pre-2022 fit R²=${fmtNum(regime1?.r2,2)} vs post-2022 R²=${fmtNum(regime2?.r2,2)}; ${premiumWeak ? 'post-2022 explanatory power is weak, so real-rate model should be down-weighted for now.' : 'post-2022 relationship remains meaningful enough to monitor.'}`
+                : 'Regime-break diagnostics unavailable.';
+            const scoreLine = `Bull Market Scorecard: ${sc.composite} bullish (${sc.bullishCount}/${sc.total}). Bullish signals: ${sc.bullish.slice(0,4).map(x => x.label).join(', ') || 'none'}. Bearish signals: ${sc.bearish.slice(0,4).map(x => x.label).join(', ') || 'none'}.`;
+            const demandLine = demand
+                ? `Latest demand quarter ${demand.latestQuarter}: ${demand.rows.map(r => `${r.name}=${fmtNum(r.cur,1)} (QoQ ${r.qoq!=null?(r.qoq>=0?'+':'')+fmtNum(r.qoq,1):'—'}, YoY ${r.yoyDiff!=null?(r.yoyDiff>=0?'+':'')+fmtNum(r.yoyDiff,1):'—'})`).join(' | ')}`
+                : 'Demand tab summary unavailable.';
+
+            const reportBody = [
+                'Current Price Action & Trend',
+                `Spot: ${fmtPrice(current)} | Daily ${daily != null ? daily.toFixed(2) + '%' : '—'} | Weekly ${weekly != null ? weekly.toFixed(2) + '%' : '—'} | Monthly ${monthly != null ? monthly.toFixed(2) + '%' : '—'} | YTD ${ytd != null ? ytd.toFixed(2) + '%' : '—'}`,
+                '',
+                'Support / Resistance',
+                `20D support/resistance: ${fmtPrice(support20)} / ${fmtPrice(resistance20)} | 60D support/resistance: ${fmtPrice(support60)} / ${fmtPrice(resistance60)}`,
+                '',
+                'Cross-Tab Facts (All Data Points)',
+                topBuyerLine,
+                demandLine,
+                dedollarLine,
+                regimeLine,
+                scoreLine,
+                '',
+                'AI Macro Context (USD, Rates, Positioning, Flow)',
+                aiCalls[1] || 'Macro AI analysis unavailable.',
+                '',
+                aiCalls[2] || 'Positioning AI analysis unavailable.',
+                '',
+                aiCalls[3] || 'Physical vs paper AI analysis unavailable.',
+                '',
+                'Trend & Regime',
+                aiCalls[0] || 'Trend AI analysis unavailable.',
+                '',
+                'Miner Confirmation / Risk Appetite',
+                aiCalls[4] || 'Miner-confirmation AI analysis unavailable.',
+                '',
+                'Composite Synthesis',
+                aiCalls[5] || 'Composite AI analysis unavailable.',
+                '',
+                'Final Verdict',
+                `${premiumWeak ? 'Until regime-2 R² materially improves, treat real rates as a secondary input and prioritize cross-tab confirmation (CB demand, TIC shifts, positioning, and physical flow signals).' : 'Real-rate signal remains active but should still be cross-validated with CB demand, TIC shifts, and positioning.'}`
+            ].join('\n');
+
+            const nowIso = new Date().toISOString();
+            const report = {
+                id: 'local_' + nowIso.replace(/[-:.TZ]/g, ''),
+                generated_at: nowIso,
+                trigger: trigger || 'manual',
+                gold_price: current,
+                gold_as_of: goldResp?.date || futures[futures.length - 1]?.date || null,
+                snapshot: {
+                    gold: { changes_pct: { daily, weekly, monthly, ytd } },
+                    macro: statusResp?.realRates || null,
+                    dedollarization: { tic_month: ticResp?.latest_month || null }
+                },
+                analysis: reportBody
+            };
+
+            const store = getLocalAiStore();
+            store.reports = [report, ...(store.reports || [])].slice(0, 120);
+            store.updated_at = nowIso;
+            saveLocalAiStore(store);
+            return getLocalAiPayload();
         }
 
         // ===========================================
@@ -3696,6 +4407,6 @@
     updateGoldPrice();
     setInterval(updateGoldPrice, 5 * 60 * 1000); // refresh every 5 minutes
     </script>
-    <script src="/analytics.js?v=5"></script>
+    <script src="/analytics.js?v=6"></script>
 </body>
 </html>
