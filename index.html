@@ -1006,6 +1006,7 @@
             <button class="tab" data-tab="historical">Historical</button>
             <button class="tab" data-tab="countries">Countries</button>
             <button class="tab" data-tab="sources">Sources</button>
+            <button class="tab" data-tab="dedollarization" onclick="initDedollarTab()">Dedollarization</button>
             <button class="tab" data-tab="market-structure" onclick="initMarketStructure()">Market Structure</button>
             <button class="tab" data-tab="swiss-trade" onclick="initSwissPage()">Swiss Trade</button>
         </div>
@@ -1858,6 +1859,125 @@
         
         </section>
 
+
+        <section class="content-section" id="dedollarization">
+
+            <div style="margin:16px;padding:12px 16px;font-size:12px;color:var(--text-secondary);
+                line-height:1.7;border-left:3px solid var(--accent);
+                background:rgba(88,166,255,0.04);border-radius:4px;">
+                <strong style="color:var(--text-primary);">Signal:</strong>
+                Countries simultaneously reducing US Treasury holdings and increasing gold reserves
+                are structurally diversifying away from the dollar reserve system.
+                Post-March 2022 (Russia reserve freeze), this accelerated among both adversarial
+                and Western-aligned central banks. The WGC vs IMF gap measures gold accumulation
+                not yet officially reported — a proxy for covert or unreported purchases.
+            </div>
+
+            <div class="stats-grid" style="margin-bottom:16px;">
+                <div class="stat-card">
+                    <div class="stat-label">TIC Data As Of</div>
+                    <div class="stat-value" id="tic-latest-month" style="font-size:16px;">—</div>
+                    <div class="stat-change" style="color:var(--text-muted);">~45 day lag</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">China Treasury Holdings</div>
+                    <div class="stat-value" id="tic-china-latest" style="font-size:16px;">—</div>
+                    <div class="stat-change" id="tic-china-change">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">China 12M Change</div>
+                    <div class="stat-value" id="tic-china-12m" style="font-size:16px;">—</div>
+                    <div class="stat-change" style="color:var(--text-muted);">vs prior year</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">WGC vs IMF Gap (Latest Q)</div>
+                    <div class="stat-value" id="wgc-imf-gap-val" style="font-size:16px;">—</div>
+                    <div class="stat-change" id="wgc-imf-gap-label" style="color:var(--text-muted);">unreported accumulation</div>
+                </div>
+            </div>
+
+            <div class="chart-card" style="margin-bottom:16px;">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">Foreign Holdings of US Treasuries</div>
+                        <div class="chart-subtitle">USD billions, monthly — Source: US Treasury TIC</div>
+                    </div>
+                    <div class="chart-controls">
+                        <select id="ticCountrySelect" onchange="updateTicChart()"
+                            style="font-size:11px;padding:4px 8px;background:var(--bg-secondary);
+                                   border:1px solid var(--border);color:var(--text-primary);border-radius:4px;">
+                            <option value="China">China</option>
+                            <option value="Japan">Japan</option>
+                            <option value="India">India</option>
+                            <option value="Saudi Arabia">Saudi Arabia</option>
+                            <option value="Turkey">Turkey</option>
+                            <option value="Poland">Poland</option>
+                            <option value="Brazil">Brazil</option>
+                            <option value="South Korea">South Korea</option>
+                        </select>
+                        <select id="ticPeriodSelect" onchange="updateTicChart()"
+                            style="font-size:11px;padding:4px 8px;background:var(--bg-secondary);
+                                   border:1px solid var(--border);color:var(--text-primary);border-radius:4px;">
+                            <option value="24">2 Years</option>
+                            <option value="48" selected>4 Years</option>
+                            <option value="96">8 Years</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="height:260px;padding:0 16px 16px;">
+                    <canvas id="ticChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card" style="margin-bottom:16px;">
+                <div class="chart-header">
+                    <div>
+                        <div class="chart-title">CB Gold Demand: WGC Estimate vs IMF Confirmed</div>
+                        <div class="chart-subtitle">Quarterly net purchases (tonnes) — gap = unreported accumulation</div>
+                    </div>
+                </div>
+                <div style="height:280px;padding:0 16px 16px;">
+                    <canvas id="wgcImfGapChart"></canvas>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <div class="table-header">
+                    <div class="table-title">Major Foreign Holders — Current Snapshot</div>
+                    <div class="table-actions">
+                        <button class="btn" onclick="refreshTicData()"
+                            style="font-size:11px;padding:4px 10px;">↻ Refresh</button>
+                    </div>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="ticTable">
+                        <thead>
+                            <tr>
+                                <th>Country</th>
+                                <th>Holdings ($B)</th>
+                                <th>1M Change</th>
+                                <th>2M Change</th>
+                                <th>6M Change</th>
+                                <th>1Y Change</th>
+                                <th>Trend</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticTableBody">
+                            <tr><td colspan="7" style="color:var(--text-muted);font-size:12px;
+                                padding:16px;">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="padding:8px 16px;font-size:11px;color:var(--text-muted);
+                    font-family:'JetBrains Mono',monospace;">
+                    Source: <a href="https://ticdata.treasury.gov/Publish/mfhhis01.txt"
+                        target="_blank" style="color:var(--accent);">US Treasury TIC mfhhis01.txt</a>.
+                    Custodial basis — Belgium, Luxembourg, Cayman Islands often proxy for other countries.
+                </div>
+            </div>
+
+        </section>
+
         <!-- Swiss Trade Flows Page -->
         <section class="content-section" id="swiss-trade">
           <div class="table-container">
@@ -2097,7 +2217,11 @@
                     if (imf && imf.countries) {
                         Object.entries(imf.countries).forEach(([code, info]) => {
                             if (countryQuarterlyData[code]) {
-                                Object.assign(countryQuarterlyData[code].holdings, info.quarters);
+                                // WGC data is authoritative — only fill quarters not already present
+                                const existing = countryQuarterlyData[code].holdings;
+                                Object.entries(info.quarters).forEach(([q, v]) => {
+                                    if (!(q in existing)) existing[q] = v;
+                                });
                             } else {
                                 countryQuarterlyData[code] = { name: info.name, holdings: info.quarters };
                             }
@@ -3153,6 +3277,273 @@
                     <td class="${r.change >= 0 ? 'positive' : 'negative'}">${r.change >= 0 ? '+' : ''}${r.change}t</td>
                 </tr>
             `).join('');
+        }
+
+
+        // ===========================================
+        // DEDOLLARIZATION TAB
+        // ===========================================
+
+        let _dedollarLoaded = false;
+        let ticChartInstance = null;
+        let wgcImfGapChartInstance = null;
+        let _ticData = null;
+
+        function initDedollarTab() {
+            if (!_dedollarLoaded) {
+                loadDedollarData();
+                _dedollarLoaded = true;
+            }
+        }
+
+        async function loadDedollarData(force = false) {
+            try {
+                const url  = force ? '/api/tic?refresh=1' : '/api/tic';
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                _ticData = await resp.json();
+
+                populateTicStatCards();
+                populateTicTable();
+                createTicChart();
+
+                // WGC vs IMF gap from status.json
+                const statusResp = await fetch('/data/status.json');
+                if (statusResp.ok) {
+                    const status = await statusResp.json();
+                    if (status.wgcImfGap && Object.keys(status.wgcImfGap).length) {
+                        createWgcImfGapChart(status.wgcImfGap);
+                        populateWgcImfGapCard(status.wgcImfGap);
+                    }
+                }
+            } catch (e) {
+                document.getElementById('ticTableBody').innerHTML =
+                    `<tr><td colspan="7" style="color:var(--negative);font-size:12px;padding:16px;">
+                        Failed to load: ${e.message}
+                    </td></tr>`;
+            }
+        }
+
+        function populateTicStatCards() {
+            if (!_ticData) return;
+            const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun',
+                            'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+            const latestEl = document.getElementById('tic-latest-month');
+            if (latestEl && _ticData.latest_month) {
+                const [y, m] = _ticData.latest_month.split('-');
+                latestEl.textContent = (MONTHS[parseInt(m)] || m) + ' ' + y;
+            }
+
+            const china = _ticData.countries?.['China'];
+            if (china) {
+                const elH   = document.getElementById('tic-china-latest');
+                const elChg = document.getElementById('tic-china-change');
+                const el12m = document.getElementById('tic-china-12m');
+                if (elH) elH.textContent = china.latest != null
+                    ? '$' + china.latest.toLocaleString() + 'B' : '—';
+                if (elChg && china.change_1m != null) {
+                    const s = china.change_1m >= 0 ? '+' : '';
+                    elChg.textContent = s + china.change_1m + 'B MoM';
+                    elChg.className   = 'stat-change ' + (china.change_1m >= 0 ? 'positive' : 'negative');
+                }
+                if (el12m && china.change_12m != null) {
+                    const s = china.change_12m >= 0 ? '+' : '';
+                    el12m.textContent  = s + china.change_12m.toLocaleString() + 'B';
+                    el12m.className    = 'stat-value ' + (china.change_12m >= 0 ? 'positive' : 'negative');
+                    el12m.style.fontSize = '16px';
+                }
+            }
+        }
+
+        function populateTicTable() {
+            const tbody = document.getElementById('ticTableBody');
+            if (!tbody || !_ticData?.countries) return;
+
+            const order = [
+                'Japan','China','United Kingdom','Belgium','Canada','Luxembourg',
+                'India','Germany','France','Switzerland','Taiwan','Singapore',
+                'South Korea','Saudi Arabia','Brazil','Turkey','Poland',
+                'Norway','Netherlands','UAE','Qatar','Hong Kong',
+            ];
+
+            const rows = order
+                .map(c => ({ name: c, ..._ticData.countries[c] }))
+                .filter(r => r.latest != null)
+                .sort((a, b) => b.latest - a.latest);
+
+            const calcDelta = (series, monthsBack) => {
+                if (!Array.isArray(series) || !series.length) return null;
+                if (series.length <= monthsBack) return null;
+                const latest = series[series.length - 1]?.holdings_bn;
+                const prior = series[series.length - 1 - monthsBack]?.holdings_bn;
+                if (latest == null || prior == null) return null;
+                return Number((latest - prior).toFixed(1));
+            };
+
+            tbody.innerHTML = rows.map(r => {
+                const fmt = (val, suffix) => val != null
+                    ? `<span class="${val >= 0 ? 'positive' : 'negative'}">${val >= 0 ? '+' : ''}${val.toLocaleString()}${suffix}</span>`
+                    : '—';
+
+                const c1  = r.change_1m != null ? r.change_1m : calcDelta(r.series, 1);
+                const c2  = calcDelta(r.series, 2);
+                const c6  = calcDelta(r.series, 6);
+                const c12 = r.change_12m != null ? r.change_12m : calcDelta(r.series, 11);
+
+                const trend = c12 == null ? '—'
+                    : c12 >= 10  ? '↑ Accumulating'
+                    : c12 <= -10 ? '↓ Reducing'
+                    : '→ Stable';
+                const trendCls = c12 >= 10 ? 'positive'
+                               : c12 != null && c12 <= -10 ? 'negative' : '';
+                return `
+                    <tr>
+                        <td><strong>${r.name}</strong></td>
+                        <td>$${r.latest.toLocaleString()}B</td>
+                        <td>${fmt(c1, 'B')}</td>
+                        <td>${fmt(c2, 'B')}</td>
+                        <td>${fmt(c6, 'B')}</td>
+                        <td>${fmt(c12, 'B')}</td>
+                        <td class="${trendCls}" style="font-size:11px;
+                            font-family:'JetBrains Mono',monospace;">${trend}</td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function createTicChart() {
+            const country = document.getElementById('ticCountrySelect')?.value || 'China';
+            const periods = parseInt(document.getElementById('ticPeriodSelect')?.value || '48');
+            if (!_ticData?.countries?.[country]) return;
+
+            const series = (_ticData.countries[country].series || []).slice(-periods);
+            const labels = series.map(d => d.month);
+            const values = series.map(d => d.holdings_bn);
+
+            if (ticChartInstance) ticChartInstance.destroy();
+            ticChartInstance = new Chart(
+                document.getElementById('ticChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        data:            values,
+                        borderColor:     '#58a6ff',
+                        backgroundColor: 'rgba(88,166,255,0.08)',
+                        borderWidth:     2,
+                        pointRadius:     0,
+                        fill:            true,
+                        tension:         0.3,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            grid:  { color: '#2d3a4a' },
+                            ticks: { callback: v => '$' + v.toLocaleString() + 'B' }
+                        },
+                        x: {
+                            grid:  { display: false },
+                            ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12,
+                                     font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateTicChart() { createTicChart(); }
+
+        function createWgcImfGapChart(gapData) {
+            const ctx = document.getElementById('wgcImfGapChart');
+            if (!ctx || !gapData?.wgc_purchases) return;
+
+            const wgcPurch = gapData.wgc_purchases;
+            const imfTots  = gapData.imf_totals || {};
+            const imfQs    = Object.keys(imfTots).sort();
+
+            // IMF quarterly purchases = QoQ delta of holdings totals
+            const imfPurch = {};
+            for (let i = 1; i < imfQs.length; i++) {
+                imfPurch[imfQs[i]] = Math.max(0, imfTots[imfQs[i]] - imfTots[imfQs[i-1]]);
+            }
+
+            const quarters = Object.keys(wgcPurch).sort().slice(-16);
+            const wgcVals  = quarters.map(q => wgcPurch[q] ?? null);
+            const imfVals  = quarters.map(q => imfPurch[q]  ?? null);
+            const gapVals  = quarters.map((q, i) =>
+                wgcVals[i] != null && imfVals[i] != null
+                    ? Math.max(0, wgcVals[i] - imfVals[i]) : null
+            );
+
+            if (wgcImfGapChartInstance) wgcImfGapChartInstance.destroy();
+            wgcImfGapChartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: quarters,
+                    datasets: [
+                        {
+                            label: 'WGC Estimate',
+                            data:  wgcVals,
+                            backgroundColor: 'rgba(88,166,255,0.7)',
+                            borderColor: '#58a6ff', borderWidth: 1, borderRadius: 2, order: 2,
+                        },
+                        {
+                            label: 'IMF Confirmed',
+                            data:  imfVals,
+                            backgroundColor: 'rgba(63,185,80,0.7)',
+                            borderColor: '#3fb950', borderWidth: 1, borderRadius: 2, order: 2,
+                        },
+                        {
+                            label: 'Gap (unreported)',
+                            data:  gapVals, type: 'line',
+                            borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.1)',
+                            borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, order: 1,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: true,
+                        labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+                    scales: {
+                        y: { grid: { color: '#2d3a4a' }, ticks: { callback: v => v + 't' } },
+                        x: { grid: { display: false },
+                             ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12,
+                                      font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function populateWgcImfGapCard(gapData) {
+            if (!gapData?.wgc_purchases) return;
+            const quarters = Object.keys(gapData.wgc_purchases).sort();
+            const latestQ  = quarters[quarters.length - 1];
+            const wgcVal   = gapData.wgc_purchases[latestQ];
+            const imfTots  = gapData.imf_totals || {};
+            const imfQs    = Object.keys(imfTots).sort();
+            const imfPurch = imfQs.length >= 2
+                ? Math.max(0, imfTots[imfQs[imfQs.length-1]] - imfTots[imfQs[imfQs.length-2]])
+                : null;
+
+            const el    = document.getElementById('wgc-imf-gap-val');
+            const label = document.getElementById('wgc-imf-gap-label');
+            if (el && wgcVal != null && imfPurch != null) {
+                const gap = Math.max(0, Math.round(wgcVal - imfPurch));
+                el.textContent   = gap + 't';
+                el.className     = 'stat-value ' + (gap > 50 ? 'negative' : '');
+                el.style.fontSize = '16px';
+                if (label) label.textContent = latestQ + ' — unreported/grey zone';
+            }
+        }
+
+        function refreshTicData() {
+            _dedollarLoaded = false;
+            loadDedollarData(true);
+            _dedollarLoaded = true;
         }
 
         // ===========================================
