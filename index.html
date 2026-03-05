@@ -1032,7 +1032,7 @@
                 <div class="chart-card">
                     <div class="chart-header">
                         <div>
-                            <div class="chart-title">Top Buyers Q3 2025</div>
+                            <div class="chart-title" id="topBuyersChartTitle">Top Buyers</div>
                             <div class="chart-subtitle">Net purchases in tonnes</div>
                         </div>
                     </div>
@@ -1123,7 +1123,7 @@
                 <div class="chart-card">
                     <div class="chart-header">
                         <div>
-                            <div class="chart-title">Demand Composition Q3 2025</div>
+                            <div class="chart-title" id="demandPieTitle">Demand Composition</div>
                             <div class="chart-subtitle">Percentage breakdown</div>
                         </div>
                     </div>
@@ -1179,7 +1179,7 @@
                 </div>
                 <div class="control-group">
                     <label class="control-label">Country</label>
-                    <select id="countryFilter" onchange="updateHistoricalChart()">
+                    <select id="countryFilterSelect" onchange="updateHistoricalChart()">
                         <option value="all">All Central Banks</option>
                         <option value="PL">Poland</option>
                         <option value="CN">China</option>
@@ -1243,19 +1243,8 @@
                 <div class="table-scroll">
                     <table id="countriesTable">
                         <thead>
-                            <tr>
+                            <tr id="countriesTableHeader">
                                 <th>Country</th>
-                                <th>Q3 2025</th>
-                                <th>Q3 2024</th>
-                                <th>Q3 2023</th>
-                                <th>Q3 2022</th>
-                                <th>Q3 2021</th>
-                                <th>Q3 2020</th>
-                                <th>'24→'25</th>
-                                <th>'23→'24</th>
-                                <th>'22→'23</th>
-                                <th>'21→'22</th>
-                                <th>'20→'21</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
@@ -1329,6 +1318,8 @@
             <span id="status-cot" class="data-freshness">Loading…</span>
             <span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">Prices</span>
             <span id="status-yfinance" class="data-freshness">Loading…</span>
+            <span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">IMF CB</span>
+            <span id="status-imf" class="data-freshness">—</span>
           </div>
         
           <!-- ===================================================
@@ -2096,6 +2087,51 @@
                     'Failed to load quarterly data: ' + e.message + '</div>');
                 return;
             }
+
+            // Load IMF CB holdings from status.json and merge into countryQuarterlyData
+            try {
+                const statusResp = await fetch('/data/status.json');
+                if (statusResp.ok) {
+                    const status = await statusResp.json();
+                    const imf = status.imfCbHoldings;
+                    if (imf && imf.countries) {
+                        Object.entries(imf.countries).forEach(([code, info]) => {
+                            if (countryQuarterlyData[code]) {
+                                Object.assign(countryQuarterlyData[code].holdings, info.quarters);
+                            } else {
+                                countryQuarterlyData[code] = { name: info.name, holdings: info.quarters };
+                            }
+                        });
+                        // Populate quarterlyData.holdings from IMF totals so stat cards work
+                        if (!quarterlyData.holdings) quarterlyData.holdings = {};
+                        Object.assign(quarterlyData.holdings, imf.total_by_quarter || {});
+                    }
+                    // Populate IMF freshness badge (shown in Market Structure tab)
+                    const imfEl = document.getElementById('status-imf');
+                    if (imfEl && status.dataFreshness && status.dataFreshness.imf) {
+                        const age = status.dataFreshness.imf.ageHours;
+                        imfEl.textContent = age < 2 ? 'fresh' : age < 30 ? `${Math.round(age)}h ago` : `${Math.round(age/24)}d ago`;
+                        imfEl.className = 'data-freshness ' + (age < 30 ? 'fresh' : 'stale');
+                    }
+                }
+            } catch(e) {
+                console.warn('IMF data unavailable, using hardcoded country data:', e.message);
+            }
+
+            // Populate country filter dropdown from live countryQuarterlyData
+            const countrySelect = document.getElementById('countryFilterSelect');
+            if (countrySelect) {
+                const opts = Object.entries(countryQuarterlyData)
+                    .sort((a, b) => {
+                        const av = Math.max(...Object.values(a[1].holdings).filter(Number.isFinite));
+                        const bv = Math.max(...Object.values(b[1].holdings).filter(Number.isFinite));
+                        return bv - av;
+                    })
+                    .map(([code, d]) => `<option value="${code}">${d.name}</option>`)
+                    .join('');
+                countrySelect.innerHTML = '<option value="all">All Central Banks</option>' + opts;
+            }
+
             initializeTabs();
             createQuarterlyPurchasesChart();
             createTopBuyersChart();
@@ -2206,16 +2242,40 @@
 
         function createTopBuyersChart() {
             const ctx = document.getElementById('topBuyersChart').getContext('2d');
+
+            // Find the latest Q3 available across all countries
+            const allQ3s = [];
+            Object.values(countryQuarterlyData).forEach(c => {
+                Object.keys(c.holdings).filter(q => q.endsWith('-Q3')).forEach(q => allQ3s.push(q));
+            });
+            const latestQ3 = allQ3s.sort().pop() || '2025-Q3';
+            const prevQ3   = (parseInt(latestQ3.slice(0, 4)) - 1) + '-Q3';
+
+            // Net purchases = latestQ3 holdings minus prevQ3 holdings
+            const buyers = Object.entries(countryQuarterlyData)
+                .map(([code, data]) => {
+                    const curr = data.holdings[latestQ3] || 0;
+                    const prev = data.holdings[prevQ3]   || curr;
+                    return { country: data.name, tonnes: Math.round(curr - prev) };
+                })
+                .filter(b => b.tonnes > 0)
+                .sort((a, b) => b.tonnes - a.tonnes)
+                .slice(0, 7);
+
+            const titleEl = document.getElementById('topBuyersChartTitle');
+            if (titleEl) titleEl.textContent = 'Top Buyers ' + latestQ3.replace('-', ' ');
+
+            if (topBuyersChartInstance) topBuyersChartInstance.destroy();
             topBuyersChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: topBuyersQ3.map(b => b.country),
+                    labels: buyers.map(b => b.country),
                     datasets: [{
-                        data: topBuyersQ3.map(b => b.tonnes),
+                        data: buyers.map(b => b.tonnes),
                         backgroundColor: 'rgba(88, 166, 255, 0.7)',
                         borderColor: '#58a6ff',
                         borderWidth: 1,
-                        borderRadius: 2,
+                        borderRadius: 3,
                     }]
                 },
                 options: {
@@ -2635,9 +2695,11 @@
 
         /** Update header stat cards from live quarterlyData (called after data load/upload). */
         function updateHeaderStatCards() {
-            const holdingKeys = Object.keys(quarterlyData.holdings).sort();
+            const holdingKeys = Object.keys(quarterlyData.holdings || {}).sort();
             const purchaseKeys = Object.keys(quarterlyData.netPurchases).sort();
-            const latestQ = holdingKeys[holdingKeys.length - 1] || '';
+            const latestQ = holdingKeys[holdingKeys.length - 1]
+                         || purchaseKeys[purchaseKeys.length - 1]
+                         || '';
             const latestHoldings = quarterlyData.holdings[latestQ];
             const latestPurchase = quarterlyData.netPurchases[latestQ];
             const latestYear = latestQ.slice(0, 4);
@@ -2675,6 +2737,7 @@
             priceVsPurchasesChart = null; historicalChartInstance = null;
 
             createQuarterlyPurchasesChart();
+            createTopBuyersChart();
             createPriceVsPurchasesChart();
             createJewelryChart();
             createBarCoinChart();
@@ -2906,7 +2969,9 @@
 
         function createDemandPieChart() {
             const ctx = document.getElementById('demandPieChart').getContext('2d');
-            const latestQ = '2025-Q3';
+            const latestQ = Object.keys(quarterlyData.jewelry).sort().pop() || '2025-Q4';
+            const titleEl = document.getElementById('demandPieTitle');
+            if (titleEl) titleEl.textContent = 'Demand Composition ' + latestQ.replace('-', ' ');
             const jewelry = quarterlyData.jewelry[latestQ];
             const barCoin = quarterlyData.barCoin[latestQ];
             const etf = Math.max(0, quarterlyData.etfFlows[latestQ]);
@@ -2989,7 +3054,7 @@
         function updateHistoricalChart() {
             const period = parseInt(document.getElementById('historicalPeriod').value);
             const view = document.getElementById('historicalView').value;
-            const country = document.getElementById('countryFilter').value;
+            const country = document.getElementById('countryFilterSelect').value;
             
             let quarters, data, title, subtitle;
             
@@ -3088,63 +3153,67 @@
         // ===========================================
         function populateCountriesTable() {
             const tbody = document.querySelector('#countriesTable tbody');
-            const years = ['2025-Q3', '2024-Q3', '2023-Q3', '2022-Q3', '2021-Q3', '2020-Q3'];
-            
+
+            // Dynamically find the last 6 Q3 snapshots across all countries
+            const allQ3s = new Set();
+            Object.values(countryQuarterlyData).forEach(c =>
+                Object.keys(c.holdings).filter(q => q.endsWith('-Q3')).forEach(q => allQ3s.add(q))
+            );
+            const years = [...allQ3s].sort().reverse().slice(0, 6);
+            if (!years.length) return;
+
+            // Change column keys: e.g. '2024-2025' means 2024-Q3 → 2025-Q3
+            const changeKeys = [];
+            for (let i = 0; i < years.length - 1; i++) {
+                changeKeys.push(`${years[i+1].slice(0,4)}-${years[i].slice(0,4)}`);
+            }
+
+            // Build header dynamically
+            const headerRow = document.getElementById('countriesTableHeader');
+            if (headerRow) {
+                headerRow.innerHTML = '<th>Country</th>' +
+                    years.map(y => `<th>Q${y.slice(-1)} ${y.slice(0,4)}</th>`).join('') +
+                    changeKeys.map(k => {
+                        const [from, to] = k.split('-');
+                        return `<th>'${from.slice(2)}→'${to.slice(2)}</th>`;
+                    }).join('');
+            }
+
+            const fmtChange = (val) => {
+                if (val === '—') return '<span style="color: var(--text-muted)">—</span>';
+                const num = parseFloat(val);
+                const cls = num > 0 ? 'positive' : num < 0 ? 'negative' : '';
+                const sign = num > 0 ? '+' : '';
+                return `<span class="pct-change ${cls}">${sign}${val}%</span>`;
+            };
+
             const countries = Object.entries(countryQuarterlyData)
                 .map(([code, data]) => {
                     const holdings = {};
                     years.forEach(y => { holdings[y] = data.holdings[y] || 0; });
-                    
-                    // Calculate YoY percentage changes
                     const changes = {};
                     for (let i = 0; i < years.length - 1; i++) {
                         const curr = holdings[years[i]];
                         const prev = holdings[years[i + 1]];
-                        if (prev > 0) {
-                            changes[`${years[i+1].slice(0,4)}-${years[i].slice(0,4)}`] = ((curr - prev) / prev * 100).toFixed(1);
-                        } else {
-                            changes[`${years[i+1].slice(0,4)}-${years[i].slice(0,4)}`] = '—';
-                        }
+                        const key  = changeKeys[i];
+                        changes[key] = prev > 0 ? ((curr - prev) / prev * 100).toFixed(1) : '—';
                     }
-                    
                     return { code, name: data.name, holdings, changes };
                 })
-                .sort((a, b) => b.holdings['2025-Q3'] - a.holdings['2025-Q3']);
-            
-            tbody.innerHTML = countries.map(c => {
-                const h = c.holdings;
-                const ch = c.changes;
-                
-                const fmtChange = (val) => {
-                    if (val === '—') return '<span style="color: var(--text-muted)">—</span>';
-                    const num = parseFloat(val);
-                    const cls = num > 0 ? 'positive' : num < 0 ? 'negative' : '';
-                    const sign = num > 0 ? '+' : '';
-                    return `<span class="pct-change ${cls}">${sign}${val}%</span>`;
-                };
-                
-                return `
-                    <tr data-country="${c.name.toLowerCase()}">
-                        <td>
-                            <div class="country-cell">
-                                <span class="country-code">${c.code}</span>
-                                ${c.name}
-                            </div>
-                        </td>
-                        <td>${h['2025-Q3'].toLocaleString()}</td>
-                        <td>${h['2024-Q3'].toLocaleString()}</td>
-                        <td>${h['2023-Q3'].toLocaleString()}</td>
-                        <td>${h['2022-Q3'].toLocaleString()}</td>
-                        <td>${h['2021-Q3'].toLocaleString()}</td>
-                        <td>${h['2020-Q3'].toLocaleString()}</td>
-                        <td>${fmtChange(ch['2024-2025'])}</td>
-                        <td>${fmtChange(ch['2023-2024'])}</td>
-                        <td>${fmtChange(ch['2022-2023'])}</td>
-                        <td>${fmtChange(ch['2021-2022'])}</td>
-                        <td>${fmtChange(ch['2020-2021'])}</td>
-                    </tr>
-                `;
-            }).join('');
+                .sort((a, b) => b.holdings[years[0]] - a.holdings[years[0]]);
+
+            tbody.innerHTML = countries.map(c => `
+                <tr data-country="${c.name.toLowerCase()}">
+                    <td>
+                        <div class="country-cell">
+                            <span class="country-code">${c.code}</span>
+                            ${c.name}
+                        </div>
+                    </td>
+                    ${years.map(y => `<td>${(c.holdings[y] || 0).toLocaleString()}</td>`).join('')}
+                    ${changeKeys.map(k => `<td>${fmtChange(c.changes[k])}</td>`).join('')}
+                </tr>
+            `).join('');
         }
 
         function filterCountries() {

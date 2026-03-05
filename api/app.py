@@ -13,6 +13,7 @@ from flask_cors import CORS
 from fetcher import fetch_fred, fetch_cot, fetch_yfinance
 import pdfplumber
 from swiss_fetcher import fetch_swiss_gold_imports, compute_swiss_signals
+from imf_fetcher import fetch_imf_cb_holdings
 
 app = Flask(__name__)
 CORS(app, origins=['http://gold.hb-labs.com', 'http://159.223.44.23'])
@@ -25,6 +26,7 @@ CACHE_TTL = {
     'cot.json':          7 * 24 * 3600,   # 7 days
     'yfinance.json':    24 * 3600,        # 24 hours
     'swiss_gold.json':  35 * 24 * 3600,   # 35 days (monthly data, ~3-week lag)
+    'imf_cb.json':      24 * 3600,        # 24 hours (IMF updates monthly)
 }
 
 
@@ -238,6 +240,21 @@ def compute_analytics():
             'ageHours': round((time.time() - mtime) / 3600, 1),
         }
 
+    # ── IMF CB Holdings ────────────────────────────────────────────────────────
+    imf_raw, imf_mtime = load('imf_cb.json')
+    imf_cb_block = None
+    if imf_raw and imf_raw.get('countries'):
+        try:
+            imf_cb_block = {
+                'countries':        imf_raw['countries'],
+                'total_by_quarter': imf_raw.get('total_by_quarter', {}),
+                'latest_quarter':   imf_raw.get('latest_quarter'),
+                'fetched_at':       imf_raw.get('fetched_at'),
+                'warnings':         imf_raw.get('warnings', []),
+            }
+        except Exception:
+            imf_cb_block = None
+
     return {
         'lastUpdated':            datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
         'lastDate':               latest['date'] if latest else None,
@@ -286,8 +303,10 @@ def compute_analytics():
             'cot':      freshness(cot_mtime),
             'yfinance': freshness(yf_mtime),
             'swiss':    freshness(swiss_mtime),
+            'imf':      freshness(imf_mtime),
         },
-        'swiss_trade': swiss_signals,
+        'swiss_trade':    swiss_signals,
+        'imfCbHoldings':  imf_cb_block,
     }
 
 
@@ -421,6 +440,50 @@ def analytics_export():
         return jsonify({'error': 'Data not yet cached'}), 503
     write_status_json()
     return jsonify(data)
+
+
+@app.route('/api/imf-cb', methods=['GET'])
+def imf_cb():
+    """Fetch IMF IFS central bank gold holdings. Cached 24h."""
+    force = request.args.get('refresh') == '1'
+
+    # Pass gold price data from quarterly.json for USD→tonnes conversion
+    gold_prices = {}
+    try:
+        if os.path.exists(QUARTERLY_JSON_PATH):
+            with open(QUARTERLY_JSON_PATH) as f:
+                qdata = json.load(f)
+            gold_prices = qdata.get('goldPrice', {})
+    except Exception:
+        pass
+
+    def fetcher():
+        return fetch_imf_cb_holdings(gold_price_by_quarter=gold_prices)
+
+    return serve('imf_cb.json', fetcher, force=force)
+
+
+@app.route('/api/imf-cb/upload', methods=['POST'])
+def imf_cb_upload():
+    """Accept a pre-fetched IMF IFS JSON payload (from a machine that can reach IMF API).
+    POST the output of fetch_imf_cb_holdings() as application/json.
+    Example local usage:
+        python3 -c "from imf_fetcher import fetch_imf_cb_holdings; import json; print(json.dumps(fetch_imf_cb_holdings()))" | curl -X POST http://gold.hb-labs.com/api/imf-cb/upload -H 'Content-Type: application/json' --data-binary @-
+    """
+    try:
+        payload = request.get_json(force=True)
+        if not payload or not payload.get('countries'):
+            return jsonify({'error': 'Invalid payload: missing countries key'}), 400
+        write_cache('imf_cb.json', payload)
+        write_status_json()
+        return jsonify({
+            'ok': True,
+            'countries': len(payload['countries']),
+            'latest_quarter': payload.get('latest_quarter'),
+            'fetched_at': payload.get('fetched_at'),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/swiss-trade')
