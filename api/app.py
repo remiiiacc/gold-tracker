@@ -6,6 +6,7 @@ Run with: gunicorn -w 2 -b 127.0.0.1:5000 app:app
 import io
 import json
 import os
+import re
 import time
 from datetime import datetime
 from flask import Flask, jsonify, request
@@ -1487,34 +1488,416 @@ def _build_ai_snapshot():
     }
 
 
+def _tic_alignment(country):
+    us_aligned = {
+        'United Kingdom', 'Japan', 'South Korea', 'Australia', 'Canada',
+        'Israel', 'Saudi Arabia', 'Germany', 'France', 'Belgium',
+        'Luxembourg', 'Netherlands', 'Norway', 'Taiwan', 'Poland',
+    }
+    china_aligned = {
+        'China', 'Russia', 'Hong Kong', 'Iran', 'North Korea',
+        'Pakistan', 'Venezuela', 'Cambodia',
+    }
+    if country in us_aligned:
+        return 'US-Aligned'
+    if country in china_aligned:
+        return 'China-Aligned'
+    return 'Neutral'
+
+
+def _build_ai_facts(snapshot):
+    facts = {
+        'market': {},
+        'macro': {},
+        'demand': {},
+        'central_banks': {},
+        'dedollarization': {},
+        'technicals': {},
+        'scorecard': {},
+    }
+
+    gold = snapshot.get('gold', {}) if isinstance(snapshot, dict) else {}
+    history = gold.get('history_1y', []) if isinstance(gold.get('history_1y'), list) else []
+    closes = [x.get('close') for x in history if isinstance(x, dict) and x.get('close') is not None]
+    cur = gold.get('current_price')
+    facts['market'] = {
+        'current_price': cur,
+        'as_of': gold.get('as_of'),
+        'daily_pct': (gold.get('changes_pct') or {}).get('daily'),
+        'weekly_pct': (gold.get('changes_pct') or {}).get('weekly'),
+        'monthly_pct': (gold.get('changes_pct') or {}).get('monthly'),
+        'ytd_pct': (gold.get('changes_pct') or {}).get('ytd'),
+        'support_resistance': gold.get('support_resistance'),
+    }
+
+    macro = snapshot.get('macro', {}) if isinstance(snapshot, dict) else {}
+    rr = macro.get('real_rates') if isinstance(macro.get('real_rates'), dict) else {}
+    facts['macro'] = {
+        'tips10y': rr.get('tips10y'),
+        'tips3m_change': rr.get('tips3mChange'),
+        'dxy': rr.get('dxy'),
+        'dxy90d_change': rr.get('dxy90dChange'),
+        'sofr': rr.get('sofr'),
+        'cot': macro.get('cot'),
+        'ratios': macro.get('ratios'),
+    }
+
+    ded = snapshot.get('dedollarization', {}) if isinstance(snapshot, dict) else {}
+    tic = ded.get('tic_holdings') if isinstance(ded.get('tic_holdings'), dict) else {}
+    tic_countries = tic.get('countries') if isinstance(tic.get('countries'), dict) else {}
+    tic_rows = []
+
+    def _delta_from_series(series, months_back):
+        if not isinstance(series, list) or len(series) <= months_back:
+            return None
+        latest = series[-1].get('holdings_bn') if isinstance(series[-1], dict) else None
+        prior = series[-1 - months_back].get('holdings_bn') if isinstance(series[-1 - months_back], dict) else None
+        if latest is None or prior is None:
+            return None
+        try:
+            return round(float(latest) - float(prior), 1)
+        except Exception:
+            return None
+    alignment_totals = {'US-Aligned': 0.0, 'China-Aligned': 0.0, 'Neutral': 0.0}
+    for name, d in tic_countries.items():
+        latest = d.get('latest')
+        ch12 = d.get('change_12m')
+        c24 = d.get('change_24m')
+        c36 = d.get('change_36m')
+        c60 = d.get('change_60m')
+        series = d.get('series')
+        if c24 is None:
+            c24 = _delta_from_series(series, 24)
+        if c36 is None:
+            c36 = _delta_from_series(series, 36)
+        if c60 is None:
+            c60 = _delta_from_series(series, 60)
+        align = _tic_alignment(name)
+        if latest is not None:
+            alignment_totals[align] += float(latest)
+        tic_rows.append({
+            'country': name,
+            'latest_bn': latest,
+            'change_12m_bn': ch12,
+            'change_24m_bn': c24,
+            'change_36m_bn': c36,
+            'change_60m_bn': c60,
+            'alignment': align,
+        })
+    reducers = sorted([r for r in tic_rows if r.get('change_12m_bn') is not None], key=lambda x: x['change_12m_bn'])[:6]
+    accum = sorted([r for r in tic_rows if r.get('change_12m_bn') is not None], key=lambda x: x['change_12m_bn'], reverse=True)[:6]
+
+    wgc_gap = ded.get('wgc_imf_gap') if isinstance(ded.get('wgc_imf_gap'), dict) else {}
+    gap_latest = None
+    if wgc_gap.get('wgc_purchases') and wgc_gap.get('imf_totals'):
+        qs = sorted(set(wgc_gap['wgc_purchases'].keys()) & set(wgc_gap['imf_totals'].keys()))
+        if len(qs) >= 2:
+            q = qs[-1]
+            prev = qs[-2]
+            wgc_q = wgc_gap['wgc_purchases'].get(q)
+            imf_q = wgc_gap['imf_totals'].get(q)
+            imf_prev = wgc_gap['imf_totals'].get(prev)
+            if wgc_q is not None and imf_q is not None and imf_prev is not None:
+                imf_flow = max(0, imf_q - imf_prev)
+                gap_latest = {'quarter': q, 'wgc_t': wgc_q, 'imf_confirmed_t': imf_flow, 'gap_t': max(0, wgc_q - imf_flow)}
+
+    bloc_changes = {
+        'US-Aligned': {'1Y': 0.0, '2Y': 0.0, '3Y': 0.0, '5Y': 0.0},
+        'China-Aligned': {'1Y': 0.0, '2Y': 0.0, '3Y': 0.0, '5Y': 0.0},
+        'Neutral': {'1Y': 0.0, '2Y': 0.0, '3Y': 0.0, '5Y': 0.0},
+    }
+    for r in tic_rows:
+        b = bloc_changes.get(r['alignment'])
+        if not b:
+            continue
+        if r.get('change_12m_bn') is not None:
+            b['1Y'] += float(r['change_12m_bn'])
+        if r.get('change_24m_bn') is not None:
+            b['2Y'] += float(r['change_24m_bn'])
+        if r.get('change_36m_bn') is not None:
+            b['3Y'] += float(r['change_36m_bn'])
+        if r.get('change_60m_bn') is not None:
+            b['5Y'] += float(r['change_60m_bn'])
+    for bloc in bloc_changes:
+        for k in bloc_changes[bloc]:
+            bloc_changes[bloc][k] = round(bloc_changes[bloc][k], 1)
+
+    neutral3y = bloc_changes['Neutral']['3Y']
+    china3y = bloc_changes['China-Aligned']['3Y']
+    us3y = bloc_changes['US-Aligned']['3Y']
+    if neutral3y > 0 and china3y < 0:
+        bloc_interp = 'Dedollarization is China-specific — neutral nations are net adding Treasuries.'
+    elif neutral3y < 0 and china3y < 0:
+        bloc_interp = 'Broad-based Treasury reduction across blocs — genuine structural shift signal.'
+    else:
+        bloc_interp = 'Mixed signals across blocs — no clear directional consensus.'
+
+    facts['dedollarization'] = {
+        'tic_latest_month': tic.get('latest_month'),
+        'tic_reducers_12m': reducers,
+        'tic_accumulators_12m': accum,
+        'alignment_totals_bn': {k: round(v, 1) for k, v in alignment_totals.items()},
+        'bloc_changes_bn': bloc_changes,
+        'bloc_interpretation': (
+            f"Over 3 years: China-Aligned {china3y:+.1f}B, US-Aligned {us3y:+.1f}B, Neutral {neutral3y:+.1f}B. "
+            + bloc_interp
+        ),
+        'wgc_imf_gap_latest': gap_latest,
+    }
+
+    sc = macro.get('scorecard') if isinstance(macro.get('scorecard'), dict) else {}
+    sigs = sc.get('signals') if isinstance(sc.get('signals'), dict) else {}
+    facts['scorecard'] = {
+        'composite': sc.get('composite'),
+        'bullish_signals': sc.get('bullishSignals'),
+        'total_signals': sc.get('totalSignals'),
+        'signals': sigs,
+    }
+
+    # Demand + country leaders from quarterly datasets
+    try:
+        with open(QUARTERLY_JSON_PATH) as f:
+            qd = json.load(f)
+        net = qd.get('netPurchases', {})
+        jwl = qd.get('jewelry', {})
+        bnc = qd.get('barCoin', {})
+        etf = qd.get('etfFlows', {})
+        quarters = sorted(net.keys())
+        if quarters:
+            q = quarters[-1]
+            q_prev = quarters[-2] if len(quarters) >= 2 else None
+            q_yoy = quarters[-5] if len(quarters) >= 5 else None
+
+            def _row(name, src):
+                curv = src.get(q)
+                prev = src.get(q_prev) if q_prev else None
+                yoyv = src.get(q_yoy) if q_yoy else None
+                return {
+                    'name': name,
+                    'current': curv,
+                    'qoq': (curv - prev) if curv is not None and prev is not None else None,
+                    'yoy': (curv - yoyv) if curv is not None and yoyv is not None else None,
+                }
+
+            facts['demand'] = {
+                'latest_quarter': q,
+                'rows': [
+                    _row('central_banks', net),
+                    _row('jewelry', jwl),
+                    _row('bar_coin', bnc),
+                    _row('etf_flows', etf),
+                ],
+            }
+    except Exception:
+        pass
+
+    # IMF country YoY leaders
+    cb_growth = {}
+    try:
+        imf = cache_path('imf_cb.json')
+        if os.path.exists(imf):
+            with open(imf) as f:
+                imf_raw = json.load(f)
+            cdict = imf_raw.get('countries', {}) if isinstance(imf_raw, dict) else {}
+            leaders = []
+            for code, info in cdict.items():
+                qs = info.get('quarters', {}) if isinstance(info.get('quarters'), dict) else {}
+                keys = sorted(qs.keys())
+                if len(keys) < 5:
+                    continue
+                latest_q = keys[-1]
+                prev_y = keys[-5]
+                latest_v = qs.get(latest_q)
+                prev_v = qs.get(prev_y)
+                if latest_v is None or prev_v is None:
+                    continue
+                yoy = round(latest_v - prev_v, 1)
+                # IMF USD→tonnes conversion can create artificial swings for some countries (especially CN).
+                # Keep AI output conservative by excluding obvious conversion-noise outliers.
+                if code == 'CN':
+                    continue
+                if abs(yoy) > 80:
+                    continue
+                leaders.append({
+                    'country': info.get('name', code),
+                    'latest_quarter': latest_q,
+                    'previous_year_quarter': prev_y,
+                    'latest_tonnes': latest_v,
+                    'yoy_change_tonnes': yoy,
+                })
+                cb_growth[info.get('name', code)] = yoy
+            leaders_sorted = sorted(leaders, key=lambda x: x['yoy_change_tonnes'], reverse=True)
+            facts['central_banks'] = {
+                'top_buyers_yoy': leaders_sorted[:8],
+                'top_sellers_yoy': list(reversed(sorted(leaders, key=lambda x: x['yoy_change_tonnes'])[:8])),
+            }
+    except Exception:
+        pass
+
+    # Technicals from ratios/cot
+    ratios = macro.get('ratios', {}) if isinstance(macro.get('ratios'), dict) else {}
+    cot = macro.get('cot', {}) if isinstance(macro.get('cot'), dict) else {}
+    facts['technicals'] = {
+        'gold_cobasis': ratios.get('cobasis'),
+        'gold_silver_ratio': ratios.get('goldSilverRatio'),
+        'gdx_gld_ratio': ratios.get('gdxGld'),
+        'gdx_gld_3y_avg': ratios.get('gdxGld3yAvg'),
+        'cot_percentile_5y': cot.get('percentile5y'),
+        'cot_net_long': cot.get('netLong'),
+    }
+
+    # Confirmed multi-year treasury reducers that are also gold accumulators (YoY > 0)
+    try:
+        rotators = []
+        for r in tic_rows:
+            multi_year_reduce = (
+                (r.get('change_24m_bn') is not None and r.get('change_24m_bn') < 0) or
+                (r.get('change_36m_bn') is not None and r.get('change_36m_bn') < 0) or
+                (r.get('change_60m_bn') is not None and r.get('change_60m_bn') < 0)
+            )
+            gold_yoy = cb_growth.get(r['country'])
+            if multi_year_reduce and gold_yoy is not None and gold_yoy > 0:
+                rotators.append({
+                    'country': r['country'],
+                    'alignment': r['alignment'],
+                    'treasury_2y_change_bn': r.get('change_24m_bn'),
+                    'treasury_3y_change_bn': r.get('change_36m_bn'),
+                    'treasury_5y_change_bn': r.get('change_60m_bn'),
+                    'gold_yoy_tonnes': gold_yoy,
+                })
+        facts['dedollarization']['confirmed_rotators'] = sorted(
+            rotators, key=lambda x: (x.get('treasury_3y_change_bn') or 0)
+        )
+    except Exception:
+        pass
+    return facts
+
+
 def _generate_ai_report(trigger='manual'):
     snapshot = _build_ai_snapshot()
+    facts = _build_ai_facts(snapshot)
     api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
         raise ValueError('Analysis service not configured (missing API key)')
 
+    system_prompt = (
+        "You are a senior gold market analyst with 20+ years of experience across macro, commodities, and institutional flow analysis. "
+        "You write internal research notes for a sophisticated investor audience. You are precise, data-driven, and opinionated.\n"
+        "You have access to a proprietary gold tracking dashboard with the following live data sources. You must reference specific numbers from each relevant source — never speak in vague generalities:\n"
+        "DATA SOURCES AVAILABLE:\n\n"
+        "WGC Demand Data (quarterly, 15 years): Jewelry demand, Bar & Coin investment, ETF net flows, Central Bank net purchases, gold price per quarter. Includes ETF flow momentum (second derivative — the rate of change of the 4-quarter rolling average).\n"
+        "Central Bank Holdings (quarterly, 2018–present): Country-level holdings for 20+ central banks including Poland, China, Turkey, India, Singapore, Czech Republic, Qatar, Russia, Germany, USA, France, Italy, Saudi Arabia, and others. Compute YoY changes to identify top buyers and sellers.\n"
+        "FRED (daily/monthly): 10-Year TIPS yield (real rate), DXY (USD index), gold spot price, SOFR. Includes dual-regime regression analysis: Regime 1 (2006–2021, R² historically ~0.88) vs Regime 2 (2022–present, regime break). The regime break premium = current gold price minus what the old model would predict at today's TIPS yield.\n"
+        "CFTC COT (weekly): COMEX managed money net long contracts with 5-year percentile ranking. Above 80th percentile = crowded long (risk). Below 20th = washed out (opportunity).\n"
+        "Yahoo Finance (daily): Gold futures (GC=F), GDX (gold miners ETF), GLD (gold ETF), SLV (silver ETF), silver futures. Used to compute: GDX/GLD ratio (miner confirmation), Gold/Silver ratio, Gold Cobasis (spot minus futures — backwardation is bullish physical demand signal).\n"
+        "US Treasury TIC (monthly): Foreign holdings of US Treasuries by country, classified by geopolitical alignment (US-Aligned, China-Aligned, Neutral). Shows dedollarization trends — which blocs are reducing dollar reserves and simultaneously buying gold.\n"
+        "Bull Market Scorecard: 9-factor composite signal (Real Rate Trend, Rate Model Premium, DXY Trend, COT Positioning, Gold Cobasis, Miner Confirmation, Gold/Silver Ratio, CB Demand Trend, ETF Flow Trend).\n\n"
+        "RULES FOR YOUR ANALYSIS:\n\n"
+        "Cite specific numbers for every claim. Never say \"gold has been rising\" — say \"gold is at $X, up Y% over Z period.\"\n"
+        "Cross-reference at least 3 data sources for each major conclusion. If COT is crowded but CB demand is strong and the regime break premium is expanding, that tension matters — explain it.\n"
+        "The ETF momentum second derivative is more important than raw ETF flow levels. A negative second derivative while flows are still positive means institutional enthusiasm is fading before it shows in price.\n"
+        "The regime break premium is the most important structural signal on the site. Always quantify it and explain what a rising or falling premium implies.\n"
+        "TIC data cross-referenced with gold holdings reveals whether countries reducing Treasury exposure are rotating into gold — this is the core dedollarization signal.\n"
+        "Be opinionated. End every section with a directional implication.\n"
+        "Do not pad. Every sentence must add information or insight.\n\n"
+        "ACCURACY & ANTI-HALLUCINATION RULES (non-negotiable):\n\n"
+        "Before making any directional price statement (e.g. \"gold rose\", \"gold fell\", \"gold is up\"), verify it against the exact price numbers in the live data snapshot. If the snapshot shows price at $5,086 down from $5,500, you must say gold is down, not up. Never contradict the data you were given.\n"
+        "Never state a price target, forecast, or range without attributing it to a named source. If you cannot name the source, do not include the forecast. Do not write \"analysts forecast\" — write \"Goldman Sachs projected X in their [date] note\" or \"JPMorgan's [analyst name] set a target of X citing Y.\" If you found it via web search, cite the URL. If you cannot find a named source, omit the forecast entirely and say so.\n"
+        "Never state a quantified estimate (e.g. \"the geopolitical risk premium accounts for $800-1,200\") without showing the methodology. For the regime break premium specifically, the calculation is: current gold price minus the old regression model's prediction at today's TIPS yield. Show both numbers. Example: \"At today's TIPS yield of 2.1%, the Regime 1 model predicts $3,850. Current price is $5,086. The regime break premium is therefore $1,236 (32%). Of this, approximately $X can be attributed to structural CB demand based on the post-2022 accumulation pace of Xt/quarter, leaving the remaining $Y as unattributed risk premium.\"\n"
+        "If a web search returns no attributable analyst forecasts, say explicitly: \"No named analyst price targets were found for this reporting period.\" Do not substitute a made-up range.\n"
+        "If two data points contradict each other (e.g. gold price is falling but you are writing a geopolitical risk section that implies gold is rising), you must acknowledge the contradiction and explain it. Example: \"Despite the Iran conflict driving an initial 2% spike to $5,300, gold has since retreated to $5,086 — suggesting the geopolitical bid was short-lived and selling pressure from [X] is overwhelming safe-haven demand.\""
+        "\n\nTIC DATA INTERPRETATION RULES:\n\n"
+        "A single month's Treasury holding change is noise, not signal. Never draw a structural conclusion from 1M or 2M changes alone. Monthly TIC data is volatile due to valuation effects, custodial reclassifications, and settlement timing — a country can show a large monthly drop simply because of bond price movements, not active selling.\n"
+        "Structural dedollarization requires evidence across at least a 2-3 year timeframe. Use the 2Y, 3Y, and 5Y change columns as your primary signal. A country is structurally reducing dollar exposure only if the multi-year trend is consistently negative.\n"
+        "Always analyse TIC data by alignment bloc separately, not in aggregate. The blocs behave differently and aggregating them destroys the signal. Specifically:\n"
+        "China-Aligned bloc: Is the multi-year trend negative? Is gold accumulation happening simultaneously? This is the true dedollarization signal.\n"
+        "US-Aligned bloc: Are they holding steady or adding? This tells you whether dollar hegemony is being abandoned broadly or selectively.\n"
+        "Neutral bloc: Are they adding or reducing? Neutral countries adding Treasuries while China reduces is a completely different geopolitical signal than both reducing together.\n"
+        "If neutral countries are net adding Treasuries over 2-3 years while China-aligned nations are net reducing, the correct conclusion is: \"Dollar reserve demand remains intact among non-aligned nations — the dedollarization story is China-specific, not a broad global trend.\" Do not call this a Bretton Woods-level shift unless the US-Aligned and Neutral blocs are also in sustained multi-year reduction.\n"
+        "Cross-reference TIC trends with CB gold holdings: a country only counts as making a structural gold-for-dollar swap if it is simultaneously and consistently reducing Treasuries AND increasing gold over the same multi-year period. One quarter of gold buying next to one month of Treasury selling does not qualify."
+    )
+
     prompt_text = (
-        "You are a senior gold market strategist. Write a comprehensive gold market report using only the JSON data below.\n\n"
-        "JSON DATA:\n" + json.dumps(snapshot, indent=2) + "\n\n"
-        "Required sections with short headings:\n"
-        "1) Current Price Action & Trend\n"
-        "2) Key Support & Resistance Levels\n"
-        "3) Macro Context (USD, rates, geopolitical risk)\n"
-        "4) Bullish vs Bearish Signals\n"
-        "5) Outlook (short-term and long-term)\n"
-        "6) Final Verdict\n\n"
-        "Rules: cite specific numbers from data, keep it concise and practical, no markdown tables, max 700 words."
+        "CRITICAL INSTRUCTION — READ BEFORE WRITING:\n"
+        "The live data snapshot below contains the ground truth. Every directional statement you make about gold price must be consistent with these numbers. Before writing each section, identify the relevant numbers from the snapshot and state them first, then build your analysis around them. If the snapshot shows gold is down from its peak, you must reflect that — do not write analysis implying gold rose. Any estimate you quantify must show its calculation. Any forecast you cite must have a named source from your web search results.\n\n"
+        "Using ALL of the following live data from the dashboard, produce a full 7-section gold market report. "
+        "Every section must cite specific numbers. Cross-reference data sources across sections.\n\n"
+        "LIVE DATA SNAPSHOT:\n"
+        + json.dumps({'snapshot': snapshot, 'facts': facts}, indent=2)
+        + "\n\n"
+        "TIC DATA — READ THIS SECTION CAREFULLY BEFORE DRAWING CONCLUSIONS:\n"
+        "The table below shows Treasury holdings by country with changes across multiple timeframes. Before writing Section 4, do the following analysis explicitly:\n"
+        "Step 1: Group countries by alignment (US-Aligned, China-Aligned, Neutral).\n"
+        "Step 2: For each bloc, sum the 1Y, 2Y, and 3Y changes separately. This gives you the trend, not just the noise.\n"
+        "Step 3: Compare the direction of each bloc. If neutral countries are net adding over 2-3 years, state that explicitly. Do not aggregate them with China-Aligned reducers.\n"
+        "Step 4: Only after completing Steps 1-3 should you draw conclusions about dedollarization. A structural shift requires sustained multi-year reduction across multiple blocs — not a single large monthly move from one country.\n"
+        "Step 5: Cross-check: which countries appear in both the Treasury reducers list (2Y+ timeframe) AND the gold accumulators list? Only these qualify as confirmed dollar-to-gold rotators.\n"
+        "Do not treat any single month's TIC move as evidence of structural change. Show your timeframe reasoning explicitly in the report.\n\n"
+        "SEARCH FOR (before writing):\n\n"
+        "Latest Fed minutes or FOMC commentary on rate path\n"
+        "Recent central bank gold purchase announcements (past 30 days)\n"
+        "Current DXY level and any major USD catalysts\n"
+        "Any geopolitical events in the past 30 days affecting safe haven demand\n"
+        "Latest CFTC COT report headline numbers if available\n\n"
+        "REPORT STRUCTURE (required, in this order):\n"
+        "1. Market Snapshot\n"
+        "State current price, all timeframe changes (daily/weekly/monthly/YTD), where price sits relative to 20-day and 60-day support/resistance. Is momentum accelerating or exhausting?\n"
+        "2. Macro Drivers\n"
+        "Analyse TIPS yield level and 3-month trend. Quantify the regime break premium (current price minus old model prediction). Is the DXY correlated or decoupled? What is SOFR signalling about liquidity? Cross-reference with Fed commentary from web search.\n"
+        "3. Central Bank & Institutional Activity\n"
+        "Name the top 3 buyers and sellers by YoY holdings change with exact tonne figures. Cross-reference with TIC data: are the countries buying gold also reducing Treasury holdings? Use this to identify which nations are making a structural rotation out of dollars into gold.\n"
+        "4. Geopolitical Risk Premium\n"
+        "Use TIC alignment data (US-Aligned vs China-Aligned vs Neutral bloc Treasury holdings) to quantify structural dedollarization. Are adversarial blocs accelerating gold purchases while reducing dollar reserves? Reference any active geopolitical catalysts from web search. Estimate how much of today's gold price is geopolitical risk premium vs rate-driven.\n"
+        "For Section 4, calculate the geopolitical risk premium as follows:\n"
+        "Step 1: Take the current TIPS yield from the FRED data.\n"
+        "Step 2: Apply the Regime 1 regression formula (which your site already computes — use the c1-model value from the scorecard) to get the rate-model implied price.\n"
+        "Step 3: The total regime break premium = current price minus Regime 1 model price. Show both numbers.\n"
+        "Step 4: From the post-2022 CB demand data, estimate the structural CB bid by calculating average quarterly purchases since 2022 multiplied by estimated price impact. This is your structural premium.\n"
+        "Step 5: Geopolitical premium = total regime break premium minus structural CB premium. State all three components with their numbers.\n"
+        "If any of these inputs are missing from the snapshot, say which input is missing rather than substituting an estimate.\n"
+        "5. Technical & Flow Analysis\n"
+        "State COT percentile precisely — is positioning crowded or washed out? Report Gold Cobasis (backwardation vs contango) and what it signals about physical vs paper demand. Report GDX/GLD ratio vs 3-year average — are miners confirming or diverging from gold? Report Gold/Silver ratio and its percentile — what does it signal about cycle positioning? Report ETF flow second derivative — is institutional flow momentum accelerating or fading?\n"
+        "6. Bull vs Bear Case\n"
+        "BULL: Make the strongest possible case using the specific data points above.\n"
+        "BEAR: Identify the 2–3 specific data points that most threaten the bull case (e.g. crowded COT, elevated regime break premium, fading ETF momentum). Do not hedge — steelman both sides.\n"
+        "7. Conviction Call\n"
+        "State a directional view for 30 days and 3 months with specific price levels. Identify the single most important data point to watch that would invalidate your thesis. Rate your conviction 1–10 and explain why.\n\n"
+        "At the end, include a heading exactly named 'Sources Used' with bullet URLs."
     )
 
     from anthropic import Anthropic as _Anthropic
     client = _Anthropic(api_key=api_key)
     msg = client.messages.create(
         model='claude-sonnet-4-20250514',
-        max_tokens=1200,
+        system=system_prompt,
+        max_tokens=4000,
         temperature=0.25,
+        tools=[{'type': 'web_search_20250305', 'name': 'web_search'}],
         messages=[{'role': 'user', 'content': prompt_text}],
     )
-    analysis_text = msg.content[0].text.strip()
+    analysis_parts = []
+    source_urls = []
+    for block in (msg.content or []):
+        btype = getattr(block, 'type', None)
+        if btype == 'text':
+            txt = (getattr(block, 'text', '') or '').strip()
+            if txt:
+                analysis_parts.append(txt)
+            citations = getattr(block, 'citations', None) or []
+            for c in citations:
+                url = None
+                if isinstance(c, dict):
+                    url = c.get('url') or ((c.get('source') or {}).get('url') if isinstance(c.get('source'), dict) else None)
+                else:
+                    url = getattr(c, 'url', None)
+                    if not url:
+                        src = getattr(c, 'source', None)
+                        url = getattr(src, 'url', None) if src is not None else None
+                if url and url not in source_urls:
+                    source_urls.append(url)
+    analysis_text = "\n\n".join(analysis_parts).strip()
+    if not source_urls:
+        source_urls = list(dict.fromkeys(re.findall(r'https?://[^\s)>\]]+', analysis_text)))
 
     now_iso = _utc_iso(datetime.utcnow())
     report = {
@@ -1525,6 +1908,7 @@ def _generate_ai_report(trigger='manual'):
         'gold_as_of': snapshot.get('gold', {}).get('as_of'),
         'snapshot': snapshot,
         'analysis': analysis_text,
+        'sources': source_urls,
     }
 
     store = _load_ai_reports_store()

@@ -965,6 +965,45 @@
     white-space: pre-wrap;
     line-height: 1.65;
   }
+  .ai-report-sections {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ai-report-section {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+  }
+  .ai-report-section summary {
+    cursor: pointer;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .ai-report-section-body {
+    padding: 0 10px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.65;
+  }
+  .ai-report-sources ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+  .ai-report-sources li {
+    margin: 4px 0;
+  }
+  .ai-report-sources a {
+    color: var(--accent-blue);
+    text-decoration: none;
+  }
+  .ai-report-sources a:hover {
+    text-decoration: underline;
+  }
   .ai-report-body.hidden { display: none; }
   .ai-report-loading {
     font-size: 12px;
@@ -2138,7 +2177,7 @@
                     '2022-Q1': 1948, '2022-Q2': 1948, '2022-Q3': 1948, '2022-Q4': 2011,
                     '2023-Q1': 2068, '2023-Q2': 2113, '2023-Q3': 2192, '2023-Q4': 2235,
                     '2024-Q1': 2257, '2024-Q2': 2264, '2024-Q3': 2264, '2024-Q4': 2264,
-                    '2025-Q1': 2264, '2025-Q2': 2264, '2025-Q3': 2290
+                    '2025-Q1': 2264, '2025-Q2': 2264, '2025-Q3': 2290, '2025-Q4': 2306
                 } 
             },
             'TR': { 
@@ -2267,7 +2306,17 @@
                                 const wgcQuarters = Object.keys(existing).sort();
                                 const lastWgcQ = wgcQuarters.length > 0 ? wgcQuarters[wgcQuarters.length - 1] : null;
                                 Object.entries(info.quarters).forEach(([q, v]) => {
-                                    if (!(q in existing) && (!lastWgcQ || q > lastWgcQ)) existing[q] = v;
+                                    // China uses official PBoC reporting cadence; do not extend with IMF-converted tail values.
+                                    if (code === 'CN') return;
+                                    if ((q in existing) || (lastWgcQ && q <= lastWgcQ)) return;
+
+                                    // Guardrail: skip suspicious IMF-conversion jumps that are likely valuation noise.
+                                    const lastVal = lastWgcQ ? existing[lastWgcQ] : null;
+                                    if (lastVal != null && Number.isFinite(Number(v))) {
+                                        const jump = Math.abs(Number(v) - Number(lastVal));
+                                        if (jump > 80) return;
+                                    }
+                                    existing[q] = v;
                                 });
                             } else {
                                 countryQuarterlyData[code] = { name: info.name, holdings: info.quarters };
@@ -3365,19 +3414,30 @@
         }
 
         async function loadDedollarData(force = false) {
+            const tbody = document.getElementById('ticTableBody');
             try {
                 const url  = force ? '/api/tic?refresh=1' : '/api/tic';
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 _ticData = await resp.json();
+                if (!_ticData?.countries) throw new Error('TIC response missing countries');
+            } catch (e) {
+                if (tbody) {
+                    tbody.innerHTML =
+                        `<tr><td colspan="17" style="color:var(--negative);font-size:12px;padding:16px;">
+                            Failed to load TIC data: ${e.message}
+                        </td></tr>`;
+                }
+                return;
+            }
 
-                populateTicCountrySelect();
-                populateTicStatCards();
-                populateTicTable();
-                renderTicAlignmentNames();
-                createTicChart();
+            try { populateTicCountrySelect(); } catch(e) { console.warn('populateTicCountrySelect error', e); }
+            try { populateTicStatCards(); } catch(e) { console.warn('populateTicStatCards error', e); }
+            try { populateTicTable(); } catch(e) { console.warn('populateTicTable error', e); }
+            try { renderTicAlignmentNames(); } catch(e) { console.warn('renderTicAlignmentNames error', e); }
+            try { createTicChart(); } catch(e) { console.warn('createTicChart error', e); }
 
-                // WGC vs IMF gap from status.json
+            try {
                 const statusResp = await fetch('/data/status.json');
                 if (statusResp.ok) {
                     const status = await statusResp.json();
@@ -3387,10 +3447,7 @@
                     }
                 }
             } catch (e) {
-                document.getElementById('ticTableBody').innerHTML =
-                    `<tr><td colspan="17" style="color:var(--negative);font-size:12px;padding:16px;">
-                        Failed to load: ${e.message}
-                    </td></tr>`;
+                console.warn('Dedollar status/chart enrichment error', e);
             }
         }
 
@@ -3921,6 +3978,56 @@
             }
         }
 
+        function parseAiReportSections(text) {
+            const headings = [
+                '1. Market Snapshot',
+                '2. Macro Drivers',
+                '3. Central Bank & Institutional Activity',
+                '4. Geopolitical Risk Premium',
+                '5. Technical Analysis',
+                '6. Bull vs Bear Case',
+                '7. Conviction Call',
+            ];
+            const lines = String(text || '').split('\n');
+            const sections = [];
+            let current = null;
+            let inSources = false;
+            let sourcesBody = [];
+
+            const normalizeHeading = (s) => s.replace(/^#+\s*/, '').trim();
+
+            for (const rawLine of lines) {
+                const line = rawLine || '';
+                const h = normalizeHeading(line);
+                if (/^Sources Used$/i.test(h)) {
+                    if (current) sections.push(current);
+                    current = null;
+                    inSources = true;
+                    continue;
+                }
+                const matched = headings.find(x => h.toLowerCase().startsWith(x.toLowerCase()));
+                if (matched) {
+                    if (current) sections.push(current);
+                    current = { heading: matched, body: [] };
+                    inSources = false;
+                    continue;
+                }
+                if (inSources) {
+                    if (line.trim()) sourcesBody.push(line.trim());
+                } else if (current) {
+                    current.body.push(line);
+                }
+            }
+            if (current) sections.push(current);
+
+            const urlRegex = /https?:\/\/[^\s)\]>]+/g;
+            const urlsFromSources = sourcesBody.flatMap(x => x.match(urlRegex) || []);
+            return {
+                sections,
+                parsedSourceUrls: Array.from(new Set(urlsFromSources)),
+            };
+        }
+
         function renderAiReports(state) {
             const reports = Array.isArray(state?.reports) ? state.reports : [];
             const lastEl = document.getElementById('ai-last-report');
@@ -3945,6 +4052,30 @@
                     `Monthly: ${changes.monthly != null ? changes.monthly + '%' : '—'}`,
                     `YTD: ${changes.ytd != null ? changes.ytd + '%' : '—'}`,
                 ].join(' | ');
+                const parsed = parseAiReportSections(r.analysis || '');
+                const sourceUrls = Array.isArray(r.sources) && r.sources.length
+                    ? Array.from(new Set(r.sources))
+                    : parsed.parsedSourceUrls;
+                const sectionHtml = (parsed.sections || []).map((s, idx) => `
+                    <details class="ai-report-section" ${idx === 0 ? 'open' : ''}>
+                        <summary>${escHtml(s.heading)}</summary>
+                        <div class="ai-report-section-body">${escHtml((s.body || []).join('\n').trim()) || '—'}</div>
+                    </details>
+                `).join('');
+                const fallbackBody = !(parsed.sections || []).length
+                    ? `<details class="ai-report-section" open>
+                        <summary>Report</summary>
+                        <div class="ai-report-section-body">${escHtml(r.analysis || '')}</div>
+                       </details>`
+                    : '';
+                const sourcesHtml = `
+                    <details class="ai-report-section ai-report-sources">
+                        <summary>Sources Used</summary>
+                        <div class="ai-report-section-body">
+                            ${sourceUrls.length ? `<ul>${sourceUrls.map(u => `<li><a href="${escHtml(u)}" target="_blank" rel="noopener noreferrer">${escHtml(u)}</a></li>`).join('')}</ul>` : 'No sources returned.'}
+                        </div>
+                    </details>
+                `;
                 return `
                     <div class="ai-report-item">
                         <button class="ai-report-head" onclick="toggleAiReport('${escHtml(r.id || ('idx_' + i))}')">
@@ -3954,7 +4085,14 @@
                             </span>
                             <span class="ai-report-sub">Click to ${i === 0 ? 'collapse' : 'expand'}</span>
                         </button>
-                        <div id="ai-report-${escHtml(r.id || ('idx_' + i))}" class="ai-report-body ${i === 0 ? '' : 'hidden'}">${escHtml(quick)}\n\n${escHtml(r.analysis || '')}</div>
+                        <div id="ai-report-${escHtml(r.id || ('idx_' + i))}" class="ai-report-body ${i === 0 ? '' : 'hidden'}">
+                            ${escHtml(quick)}
+                            <div class="ai-report-sections">
+                                ${sectionHtml}
+                                ${fallbackBody}
+                                ${sourcesHtml}
+                            </div>
+                        </div>
                     </div>`;
             }).join('');
         }
@@ -4087,15 +4225,66 @@
 
         function buildTicSummary(ticResp) {
             const countries = ticResp?.countries || {};
-            const rows = Object.entries(countries).map(([name, d]) => ({
-                name,
-                latest: d?.latest,
-                c1: d?.change_1m,
-                c12: d?.change_12m
-            })).filter(r => r.latest != null);
+            const calcDelta = (series, monthsBack) => {
+                if (!Array.isArray(series) || series.length <= monthsBack) return null;
+                const latest = series[series.length - 1]?.holdings_bn;
+                const prior = series[series.length - 1 - monthsBack]?.holdings_bn;
+                if (latest == null || prior == null) return null;
+                return Number((latest - prior).toFixed(1));
+            };
+            const rows = Object.entries(countries).map(([name, d]) => {
+                const c12 = d?.change_12m ?? calcDelta(d?.series, 12);
+                const c24 = d?.change_24m ?? calcDelta(d?.series, 24);
+                const c36 = d?.change_36m ?? calcDelta(d?.series, 36);
+                const c60 = d?.change_60m ?? calcDelta(d?.series, 60);
+                return { name, latest: d?.latest, c1: d?.change_1m, c12, c24, c36, c60 };
+            }).filter(r => r.latest != null);
             const reducers = rows.filter(r => Number.isFinite(r.c12)).sort((a, b) => a.c12 - b.c12).slice(0, 6);
             const accumulators = rows.filter(r => Number.isFinite(r.c12)).sort((a, b) => b.c12 - a.c12).slice(0, 6);
-            return { reducers, accumulators, latestMonth: ticResp?.latest_month };
+            const blocSummary = buildTicBlocSummary(rows);
+            return { reducers, accumulators, latestMonth: ticResp?.latest_month, rows, blocSummary };
+        }
+
+        function buildTicBlocSummary(rows) {
+            const blocs = { 'US-Aligned': {}, 'China-Aligned': {}, 'Neutral': {} };
+
+            rows.forEach((r) => {
+                const bloc = getTicAlignment(r.name);
+                const b = blocs[bloc];
+                [
+                    ['c12', '1Y'],
+                    ['c24', '2Y'],
+                    ['c36', '3Y'],
+                    ['c60', '5Y'],
+                ].forEach(([k, label]) => {
+                    if (!b[label]) b[label] = 0;
+                    if (r[k] != null && Number.isFinite(Number(r[k]))) b[label] += Number(r[k]);
+                });
+            });
+
+            const roundMap = {};
+            Object.keys(blocs).forEach((bloc) => {
+                roundMap[bloc] = {};
+                Object.keys(blocs[bloc]).forEach((k) => {
+                    roundMap[bloc][k] = Number(blocs[bloc][k].toFixed(1));
+                });
+            });
+
+            const neutral3Y = roundMap['Neutral']['3Y'] || 0;
+            const china3Y = roundMap['China-Aligned']['3Y'] || 0;
+            const us3Y = roundMap['US-Aligned']['3Y'] || 0;
+
+            return {
+                blocs: roundMap,
+                interpretation: `Over 3 years: China-Aligned ${china3Y >= 0 ? '+' : ''}${china3Y.toFixed(1)}B, ` +
+                    `US-Aligned ${us3Y >= 0 ? '+' : ''}${us3Y.toFixed(1)}B, ` +
+                    `Neutral ${neutral3Y >= 0 ? '+' : ''}${neutral3Y.toFixed(1)}B. ` +
+                    (neutral3Y > 0 && china3Y < 0
+                        ? 'Dedollarization is China-specific — neutral nations are net adding Treasuries.'
+                        : neutral3Y < 0 && china3Y < 0
+                        ? 'Broad-based Treasury reduction across blocs — genuine structural shift signal.'
+                        : 'Mixed signals across blocs — no clear directional consensus.')
+            };
         }
 
         function buildScorecardSummary(statusResp) {
@@ -4118,12 +4307,12 @@
             };
         }
 
-        async function requestChartAnalysis(chart) {
+        async function requestChartAnalysis(chart, promptOverride = null) {
             try {
                 const resp = await fetch('/api/analysis', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chart })
+                    body: JSON.stringify({ chart, prompt_override: promptOverride })
                 });
                 if (!resp.ok) return null;
                 const data = await resp.json();
@@ -4178,13 +4367,59 @@
             const premiumPct = statusResp?.regimeBreakPremiumPct;
             const premiumWeak = Number.isFinite(Number(regime2?.r2)) && Number(regime2.r2) <= 0.25;
 
+            const structuredPrompt = [
+                'Using ALL of the following live data from the dashboard, produce a full 7-section gold market report. Every section must cite specific numbers. Cross-reference data sources across sections.',
+                '',
+                'LIVE DATA SNAPSHOT:',
+                JSON.stringify({
+                    current_price: current,
+                    changes_pct: { daily, weekly, monthly, ytd },
+                    support_resistance: { support20, resistance20, support60, resistance60 },
+                    demand_summary: demand,
+                    country_yoy_leaders: countries,
+                    tic_summary: tic,
+                    tic_bloc_summary: tic?.blocSummary || null,
+                    scorecard: sc,
+                    regime_break_premium_pct: premiumPct,
+                    regime_r2: { regime1: regime1?.r2, regime2: regime2?.r2 },
+                    macro: statusResp?.realRates || null,
+                }, null, 2),
+                '',
+                'TIC DATA — READ THIS SECTION CAREFULLY BEFORE DRAWING CONCLUSIONS:',
+                'The table below shows Treasury holdings by country with changes across multiple timeframes. Before writing Section 4, do the following analysis explicitly:',
+                'Step 1: Group countries by alignment (US-Aligned, China-Aligned, Neutral).',
+                'Step 2: For each bloc, sum the 1Y, 2Y, and 3Y changes separately. This gives you the trend, not just the noise.',
+                'Step 3: Compare the direction of each bloc. If neutral countries are net adding over 2-3 years, state that explicitly. Do not aggregate them with China-Aligned reducers.',
+                'Step 4: Only after completing Steps 1-3 should you draw conclusions about dedollarization. A structural shift requires sustained multi-year reduction across multiple blocs — not a single large monthly move from one country.',
+                'Step 5: Cross-check: which countries appear in both the Treasury reducers list (2Y+ timeframe) AND the gold accumulators list? Only these qualify as confirmed dollar-to-gold rotators.',
+                'Do not treat any single month\'s TIC move as evidence of structural change. Show your timeframe reasoning explicitly in the report.',
+                `Pre-computed bloc summary: ${tic?.blocSummary?.interpretation || 'unavailable'}`,
+                '',
+                'SEARCH FOR (before writing):',
+                '',
+                'Latest Fed minutes or FOMC commentary on rate path',
+                'Recent central bank gold purchase announcements (past 30 days)',
+                'Current DXY level and any major USD catalysts',
+                'Any geopolitical events in the past 30 days affecting safe haven demand',
+                'Latest CFTC COT report headline numbers if available',
+                '',
+                'REPORT STRUCTURE (required, in this order):',
+                '1. Market Snapshot',
+                '2. Macro Drivers',
+                '3. Central Bank & Institutional Activity',
+                '4. Geopolitical Risk Premium',
+                '5. Technical & Flow Analysis',
+                '6. Bull vs Bear Case',
+                '7. Conviction Call'
+            ].join('\n');
+
             const aiCalls = await Promise.all([
-                requestChartAnalysis('chart1'),
-                requestChartAnalysis('chart2'),
-                requestChartAnalysis('chart3'),
-                requestChartAnalysis('chart4'),
-                requestChartAnalysis('chart6'),
-                requestChartAnalysis('chart7'),
+                requestChartAnalysis('chart1', structuredPrompt),
+                requestChartAnalysis('chart2', structuredPrompt),
+                requestChartAnalysis('chart3', structuredPrompt),
+                requestChartAnalysis('chart4', structuredPrompt),
+                requestChartAnalysis('chart6', structuredPrompt),
+                requestChartAnalysis('chart7', structuredPrompt),
             ]);
 
             const topBuyerLine = countries?.topAdders?.[0]
@@ -4193,6 +4428,7 @@
             const dedollarLine = tic?.reducers?.length
                 ? `TIC (${tic.latestMonth || 'latest'}): strongest 12M Treasury reductions include ${tic.reducers.slice(0, 3).map(x => `${x.name} (${fmtNum(x.c12,1)}B)`).join(', ')}; largest accumulators include ${tic.accumulators.slice(0, 3).map(x => `${x.name} (+${fmtNum(x.c12,1)}B)`).join(', ')}.`
                 : 'TIC dedollarization summary unavailable.';
+            const blocLine = tic?.blocSummary?.interpretation || 'TIC bloc interpretation unavailable.';
             const regimeLine = (Number.isFinite(Number(premiumPct)) || regime1?.r2 != null || regime2?.r2 != null)
                 ? `Rate-model premium is ${fmtNum(premiumPct,1)}%, but regime diagnostics show pre-2022 fit R²=${fmtNum(regime1?.r2,2)} vs post-2022 R²=${fmtNum(regime2?.r2,2)}; ${premiumWeak ? 'post-2022 explanatory power is weak, so real-rate model should be down-weighted for now.' : 'post-2022 relationship remains meaningful enough to monitor.'}`
                 : 'Regime-break diagnostics unavailable.';
@@ -4202,36 +4438,40 @@
                 : 'Demand tab summary unavailable.';
 
             const reportBody = [
-                'Current Price Action & Trend',
+                '1. Market Snapshot',
                 `Spot: ${fmtPrice(current)} | Daily ${daily != null ? daily.toFixed(2) + '%' : '—'} | Weekly ${weekly != null ? weekly.toFixed(2) + '%' : '—'} | Monthly ${monthly != null ? monthly.toFixed(2) + '%' : '—'} | YTD ${ytd != null ? ytd.toFixed(2) + '%' : '—'}`,
+                `20D support/resistance: ${fmtPrice(support20)} / ${fmtPrice(resistance20)} | 60D support/resistance: ${fmtPrice(support60)} / ${fmtPrice(resistance60)}.`,
+                `Momentum context: ${monthly != null && weekly != null ? (monthly > 0 && weekly < 0 ? 'monthly trend remains up while weekly momentum is stalling.' : monthly > 0 ? 'both monthly and weekly momentum are positive.' : 'short-term momentum is mixed/weak.') : 'insufficient momentum history.'}`,
                 '',
-                'Support / Resistance',
-                `20D support/resistance: ${fmtPrice(support20)} / ${fmtPrice(resistance20)} | 60D support/resistance: ${fmtPrice(support60)} / ${fmtPrice(resistance60)}`,
+                '2. Macro Drivers',
+                regimeLine,
+                (statusResp?.realRates ? `Real-rates block: TIPS=${fmtNum(statusResp.realRates.tips10y, 2)}%, 3M change=${fmtNum(statusResp.realRates.tips3mChange, 2)}, DXY=${fmtNum(statusResp.realRates.dxy, 2)}, DXY 90d change=${fmtNum(statusResp.realRates.dxy90dChange, 2)}, SOFR=${fmtNum(statusResp.realRates.sofr, 2)}.` : 'Macro rates data unavailable.'),
+                aiCalls[1] || 'Macro AI analysis unavailable.',
                 '',
-                'Cross-Tab Facts (All Data Points)',
+                '3. Central Bank & Institutional Activity',
                 topBuyerLine,
                 demandLine,
                 dedollarLine,
-                regimeLine,
+                blocLine,
+                (statusResp?.wgcImfGap ? `WGC vs IMF gap data available; monitor latest quarter gap for covert accumulation signals.` : 'WGC vs IMF gap unavailable.'),
+                '',
+                '4. Geopolitical Risk Premium',
+                `Dedollarization context: ${dedollarLine}`,
+                blocLine,
+                `Alignment-based TIC rotation should be cross-checked against central bank holdings and WGC-IMF gap to infer geopolitical premium.`,
+                aiCalls[5] || 'Geopolitical synthesis unavailable.',
+                '',
+                '5. Technical & Flow Analysis',
+                aiCalls[2] || 'COT/positioning analysis unavailable.',
+                '',
+                aiCalls[3] || 'Cobasis physical-vs-paper analysis unavailable.',
+                aiCalls[4] || 'Miner confirmation analysis unavailable.',
                 scoreLine,
                 '',
-                'AI Macro Context (USD, Rates, Positioning, Flow)',
-                aiCalls[1] || 'Macro AI analysis unavailable.',
-                '',
-                aiCalls[2] || 'Positioning AI analysis unavailable.',
-                '',
-                aiCalls[3] || 'Physical vs paper AI analysis unavailable.',
-                '',
-                'Trend & Regime',
+                '6. Bull vs Bear Case',
                 aiCalls[0] || 'Trend AI analysis unavailable.',
                 '',
-                'Miner Confirmation / Risk Appetite',
-                aiCalls[4] || 'Miner-confirmation AI analysis unavailable.',
-                '',
-                'Composite Synthesis',
-                aiCalls[5] || 'Composite AI analysis unavailable.',
-                '',
-                'Final Verdict',
+                '7. Conviction Call',
                 `${premiumWeak ? 'Until regime-2 R² materially improves, treat real rates as a secondary input and prioritize cross-tab confirmation (CB demand, TIC shifts, positioning, and physical flow signals).' : 'Real-rate signal remains active but should still be cross-validated with CB demand, TIC shifts, and positioning.'}`
             ].join('\n');
 
